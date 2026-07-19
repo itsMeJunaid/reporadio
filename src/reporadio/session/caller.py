@@ -30,13 +30,16 @@ def answer_question(
     k: int = 6,
     wait_index_s: float = 30.0,
     lang: str = "en",
+    prompt_name: str = "answer",
+    extra_context: str = "",
 ) -> QA:
-    """Grounded answer from the index; honest fallbacks when we can't answer."""
+    """Grounded answer from the index; honest fallbacks when we can't answer.
+    extra_context: e.g. a FILE IN FOCUS excerpt or repo overview material."""
     if not index.ready.wait(timeout=wait_index_s):
         return QA(question, STILL_INDEXING)
 
     hits = index.query(question, k=k)
-    if not hits:
+    if not hits and not extra_context:
         qa = QA(question, _not_found(question, digest))
         memory.add(qa)
         return qa
@@ -51,22 +54,23 @@ def answer_question(
     from reporadio.show.modes import language_block
 
     context = "\n\n".join(f"[{h.path}:{h.start_line}]\n{h.text}" for h in hits)
-    system = load_prompt("answer") + language_block(lang)
+    system = load_prompt(prompt_name) + language_block(lang)
     if len(memory):
         system += "\n\n" + memory.render()
+
+    user_parts = [f"REPO: {digest.name}"]
+    if extra_context:
+        user_parts.append(extra_context)
+    if context:
+        user_parts.append(f"RETRIEVED CHUNKS:\n{context}")
+    user_parts.append(f"CALLER QUESTION: {question}")
 
     resp = client.chat.completions.create(
         model=model,
         temperature=0.4,
         messages=[
             {"role": "system", "content": system},
-            {
-                "role": "user",
-                "content": (
-                    f"REPO: {digest.name}\n\nRETRIEVED CHUNKS:\n{context}\n\n"
-                    f"CALLER QUESTION: {question}"
-                ),
-            },
+            {"role": "user", "content": "\n\n".join(user_parts)},
         ],
     )
     answer = (resp.choices[0].message.content or "").strip()

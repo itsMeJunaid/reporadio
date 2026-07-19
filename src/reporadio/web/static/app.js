@@ -148,19 +148,12 @@ async function loadStations() {
       document.body.dataset.mode = m.key;
       document.querySelectorAll(".station").forEach((b) => b.classList.remove("active"));
       btn.classList.add("active");
-      markLang(m.language);
-      status(`station: <b>${m.freq} ${m.key}</b> — tune in when ready`);
+      status(`mood: <b>${m.freq} ${m.key}</b> — tune in when ready`);
     };
     row.appendChild(btn);
   });
 }
-function markLang(lang) {
-  document.querySelectorAll(".lang").forEach((b) =>
-    b.classList.toggle("active", b.dataset.lang === lang));
-}
-document.querySelectorAll(".lang").forEach((b) => {
-  b.onclick = () => { currentLang = b.dataset.lang; markLang(currentLang); };
-});
+function markLang() {}
 
 /* =============================================== stage + status */
 function setStage(stage) {
@@ -223,8 +216,23 @@ function buildTree(paths) {
     (node.__files || []).sort((a, b) => a.name.localeCompare(b.name)).forEach((f) => {
       const div = document.createElement("div");
       div.className = "file" + (f.kept ? " kept" : "");
-      div.innerHTML = `<span>${f.name}</span><span class="sz">${fmt(f.size)}</span>`;
-      div.title = f.path + (f.kept ? " — in the host's digest" : " — trimmed for size");
+      div.innerHTML = `<span class="fn">${f.name}</span>` +
+        `<span><button class="explain" title="ask the agent about this file">✦ ask</button>` +
+        `<span class="sz">${fmt(f.size)}</span></span>`;
+      div.title = f.path + (f.kept ? " — the agent has read this one" : " — trimmed; agent knows it by name");
+      div.onclick = () => {
+        document.querySelectorAll(".tree .file.sel").forEach((x) => x.classList.remove("sel"));
+        div.classList.add("sel");
+        send({ type: "select_file", path: f.path });
+        status(`in focus: <b>${f.path}</b> — ask about it, or hit ✦ ask`);
+      };
+      div.querySelector(".explain").onclick = (e) => {
+        e.stopPropagation();
+        document.querySelectorAll(".tree .file.sel").forEach((x) => x.classList.remove("sel"));
+        div.classList.add("sel");
+        player.flush();
+        send({ type: "explain_file", path: f.path });
+      };
       frag.appendChild(div);
     });
     return frag;
@@ -316,6 +324,7 @@ $("pausebtn").onclick = () => {
   else { send({ type: "resume" }); player.ctx && player.ctx.resume(); }
 };
 $("skipbtn").onclick = () => { send({ type: "skip" }); player.flush(); };
+$("tourbtn").onclick = () => { send({ type: "tour" }); $("nowline").textContent = "spinning up the full tour…"; };
 
 /* =============================================== live agent mic */
 const mic = {

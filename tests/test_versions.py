@@ -119,15 +119,14 @@ def test_generate_changelog_prompt_contains_diff_and_mode():
     diff = diff_versions(old, new)
     client = FakeClient()
     segs = list(generate_changelog(
-        make_digest(), old, new, diff, mode=get_mode("desi"), lang="roman",
+        make_digest(), old, new, diff, mode=get_mode("fun_roast"), lang="en",
         client=client,
     ))
     assert len(segs) == 1
     system = client.kwargs["messages"][0]["content"]
     user = client.kwargs["messages"][1]["content"]
     assert "CHANGELOG EPISODE" in system  # override block appended to mode prompt
-    assert "Desi FM" in system            # mode personality present
-    assert "Roman Urdu" in system         # lang block present
+    assert "Roast FM" in system           # mode personality present
     assert "brand_new.py" in user         # the actual diff reached the prompt
 
 

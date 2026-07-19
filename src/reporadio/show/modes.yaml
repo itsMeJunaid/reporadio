@@ -1,43 +1,32 @@
 standard:
   freq: "88.1"
-  title: "Standard FM — the guided tour"
+  title: "Standard — clear and sharp"
   prompt: standard
   voice: { engine: kokoro, name: af_heart }
   language: en
   temperature: 0.6
   greeting: >-
-    You're listening to RepoRadio, eighty eight point one. The repo is analyzed
-    and on my desk — let's take the tour.
+    Hey — you're on with RepoRadio. I've read this repo end to end.
+    What would you like to know?
 
 casual:
   freq: "95.7"
-  title: "Casual FM — code over chai"
+  title: "Casual — code over chai"
   prompt: casual
   voice: { engine: kokoro, name: am_adam }
   language: en
   temperature: 0.8
   greeting: >-
-    Alright, repo's loaded. Grab your chai, get comfortable — we're just going
-    to walk through this thing together.
+    Hey! Repo's loaded and I've had a good look around. So — what are
+    we digging into first?
 
 fun_roast:
   freq: "101.5"
-  title: "Roast FM — the code gets cooked"
+  title: "Roast — brutally honest"
   prompt: fun_roast
   voice: { engine: kokoro, name: am_michael }
   language: en
   temperature: 0.9
   greeting: >-
-    Welcome back to Roast FM, one oh one point five. Tonight's victim just
-    walked into the studio... let's open the file.
-
-desi:
-  freq: "106.3"
-  title: "Desi FM — apna radio host"
-  prompt: desi
-  voice: { engine: edge, name: ur-PK-AsadNeural }
-  language: roman
-  temperature: 0.8
-  greeting: >-
-    Haan G! Repo analyze kar lia — ap ki kya farmaish hai? Chaliye, shuru
-    karte hain apna tour.
+    Welcome to Roast FM. I've read the code... all of it, and I have
+    opinions. So — what shall we roast first?

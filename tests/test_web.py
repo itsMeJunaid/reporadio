@@ -68,10 +68,19 @@ def client(tmp_path, monkeypatch):
 
 def test_api_modes(client):
     modes = client.get("/api/modes").json()
-    assert {m["key"] for m in modes} == {"standard", "casual", "fun_roast", "desi"}
-    desi = next(m for m in modes if m["key"] == "desi")
-    assert desi["freq"] == "106.3"
-    assert "Haan G" in desi["greeting"]
+    assert {m["key"] for m in modes} == {"standard", "casual", "fun_roast"}
+    std = next(m for m in modes if m["key"] == "standard")
+    assert std["freq"] == "88.1"
+    assert "?" in std["greeting"]
+
+
+def test_parse_file_messages():
+    for t in ("select_file", "explain_file"):
+        type_, payload = parse_client({"type": t, "path": "src/cli.py"})
+        assert type_ == t and payload.path == "src/cli.py"
+    with pytest.raises(ProtocolError):
+        parse_client({"type": "select_file"})  # path required
+    assert parse_client({"type": "tour"})[0] == "tour"
 
 
 def test_api_versions_empty(client):

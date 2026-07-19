@@ -1,6 +1,6 @@
 [project]
 name = "reporadio"
-version = "1.1.0"
+version = "1.2.0"
 description = "Talk to any GitHub repo. Out loud. An AI radio host that tours or roasts codebases."
 readme = "README.md"
 license = "MIT"

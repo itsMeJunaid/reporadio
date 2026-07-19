@@ -76,6 +76,12 @@ def create_app() -> FastAPI:
                     session.set_mic(payload.live)
                 elif type_ == "caller_audio":
                     session.caller_chunk(payload.data, payload.end)
+                elif type_ == "select_file":
+                    session.select_file(payload.path)
+                elif type_ == "explain_file":
+                    session.explain_file(payload.path)
+                elif type_ == "tour":
+                    session.start_tour()
                 elif type_ == "pause":
                     session.paused.set()
                 elif type_ == "resume":

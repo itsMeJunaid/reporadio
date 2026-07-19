@@ -9,11 +9,15 @@ server → client:
   error           {message}
 
 client → server:
-  tune_in       {url, mode, lang}
-  mic           {live: bool}                       — live agent mode on/off
+  tune_in       {url, mode, lang}   — ingest + index + ready (conversation-first;
+                                      no monologue until asked)
+  mic           {live: bool}        — live agent mode: greet, then converse by VAD
   caller_audio  {data: base64 int16 PCM mono @16k, end: bool}
                  live mode: continuous chunks, server VAD does barge-in
                  push-to-talk fallback: chunks then {end: true}
+  select_file   {path}              — explorer selection (agent may offer help)
+  explain_file  {path}              — "walk me through this file", spoken
+  tour          {}                  — start the classic segment show on demand
   pause | resume | skip {}
 """
 
@@ -47,6 +51,11 @@ class MicLive(BaseModel):
     live: bool = True
 
 
+class FileRef(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    path: str
+
+
 class Control(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
@@ -55,6 +64,9 @@ _CLIENT_MODELS: dict[str, type[BaseModel]] = {
     "tune_in": TuneIn,
     "mic": MicLive,
     "caller_audio": CallerAudio,
+    "select_file": FileRef,
+    "explain_file": FileRef,
+    "tour": Control,
     "pause": Control,
     "resume": Control,
     "skip": Control,

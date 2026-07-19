@@ -22,7 +22,7 @@
 <!-- TUNE IN -->
 <header class="hero" id="hero">
   <h1>YOUR CODE IS <b>ON AIR</b></h1>
-  <p class="tag">Paste a GitHub repo. The host analyzes it and talks to you about it — live. Go live and just speak to interrupt him.</p>
+  <p class="tag">Paste a GitHub repo. Go live and just talk — a voice agent that's read the whole thing answers in seconds. Click any file and ask about it.</p>
 
   <div class="tunein">
     <input id="url" type="url" value="https://github.com/itsMeJunaid/reporadio" spellcheck="false">
@@ -30,15 +30,6 @@
   </div>
 
   <div class="stationrow" id="stations"></div>
-  <div class="langrow">
-    <span class="mini">language</span>
-    <div id="langs">
-      <button class="lang" data-lang="en">English</button>
-      <button class="lang" data-lang="roman">Roman Urdu</button>
-      <button class="lang" data-lang="mix">Mix</button>
-      <button class="lang" data-lang="ur">اردو</button>
-    </div>
-  </div>
 
   <div class="band-wrap" id="bandwrap">
     <div class="band">
@@ -72,9 +63,10 @@
     <div class="deck">
       <button class="ctl" id="pausebtn" title="Pause">⏸</button>
       <button class="golive" id="livebtn"><i></i><span>GO&nbsp;LIVE</span></button>
-      <button class="ctl" id="skipbtn" title="Skip segment">⏭</button>
+      <button class="ctl" id="tourbtn" title="Play the full tour">▶</button>
+      <button class="ctl" id="skipbtn" title="Skip / shut him up">⏭</button>
     </div>
-    <div class="livehint" id="livehint">go live, then just talk — the host stops and listens 🎧 headphones optional (echo-cancel on)</div>
+    <div class="livehint" id="livehint">go live and the agent asks what you need — just talk, it stops when you do · ▶ plays the classic tour</div>
   </section>
 
   <aside class="panel feed">

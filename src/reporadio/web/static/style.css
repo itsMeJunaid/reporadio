@@ -97,6 +97,11 @@ body.tuned .hero h1,body.tuned .hero .tag{display:none}
 .tree .file.kept{color:#D9D2C0}
 .tree .file.kept::after{content:"● in show";color:var(--green);font-size:9px;letter-spacing:.08em}
 .tree .file .sz{color:var(--muted);font-size:10px;opacity:.7}
+.tree .file{cursor:pointer}
+.tree .file.sel{background:var(--accent-soft);color:var(--text);box-shadow:inset 2px 0 0 var(--accent)}
+.tree .file .explain{visibility:hidden;background:transparent;border:1px solid var(--accent);color:var(--accent);border-radius:100px;font-family:var(--mono);font-size:9px;padding:1px 8px;cursor:pointer;margin-right:8px}
+.tree .file:hover .explain,.tree .file.sel .explain{visibility:visible}
+.tree .file .explain:hover{background:var(--accent);color:#131009}
 
 /* center stage */
 .stage{display:flex;flex-direction:column;align-items:center;gap:6px}

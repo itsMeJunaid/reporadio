@@ -17,36 +17,35 @@ from reporadio.show.script import PROMPTS_DIR, generate_segments
 runner = CliRunner()
 
 
-def test_all_four_stations_load():
+def test_all_stations_load():
     modes = load_modes()
-    assert set(modes) == {"standard", "casual", "fun_roast", "desi"}
+    assert set(modes) == {"standard", "casual", "fun_roast"}
     freqs = {m.freq for m in modes.values()}
-    assert freqs == {"88.1", "95.7", "101.5", "106.3"}
+    assert freqs == {"88.1", "95.7", "101.5"}
 
 
 def test_every_mode_prompt_file_exists():
     for mode in load_modes().values():
         assert (PROMPTS_DIR / f"{mode.prompt}.md").is_file(), mode.key
+    assert (PROMPTS_DIR / "agent.md").is_file()  # live conversation prompt
 
 
-def test_desi_mode_config():
-    desi = get_mode("desi")
-    assert desi.voice.engine == "edge"
-    assert desi.voice.name == "ur-PK-AsadNeural"
-    assert desi.language == "roman"
-    assert "Haan G" in desi.greeting
-
-
-def test_english_modes_use_kokoro():
+def test_all_modes_use_kokoro():
     for key in ("standard", "casual", "fun_roast"):
         assert get_mode(key).voice.engine == "kokoro"
+    assert get_mode("standard").voice.name == "af_heart"
+
+
+def test_greetings_ask_the_caller():
+    for mode in load_modes().values():
+        assert "?" in mode.greeting, f"{mode.key} greeting should invite a question"
 
 
 def test_unknown_mode_lists_stations():
     with pytest.raises(ModeError) as err:
         get_mode("metal")
     msg = str(err.value)
-    assert "88.1" in msg and "106.3" in msg and "desi" in msg
+    assert "88.1" in msg and "101.5" in msg and "casual" in msg
 
 
 def test_language_blocks():
@@ -114,8 +113,8 @@ def test_mode_temperature_flows_through():
 def test_stations_command():
     result = runner.invoke(app, ["stations"])
     assert result.exit_code == 0
-    assert "88.1" in result.output and "106.3" in result.output
-    assert "desi" in result.output
+    assert "88.1" in result.output and "101.5" in result.output
+    assert "casual" in result.output
 
 
 def test_tour_unknown_mode_is_friendly(monkeypatch):
