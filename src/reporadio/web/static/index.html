@@ -8,27 +8,39 @@
 <link href="https://fonts.googleapis.com/css2?family=Unica+One&family=Archivo:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
 </head>
-<body data-mode="standard">
+<body data-mode="standard" data-state="idle">
+
+<div class="bgfx" aria-hidden="true"></div>
 
 <nav>
-  <a class="brand" href="#">REPO<b>RADIO</b></a>
+  <a class="brand" href="#">REPO<b>RADIO</b><span class="studio">STUDIO</span></a>
   <span class="onair" id="onair">● OFF AIR</span>
   <span class="repochip" id="repochip" hidden></span>
   <span class="navright" id="navstate">studio ready</span>
 </nav>
 
 <!-- TUNE IN -->
-<section class="hero" id="hero">
-  <h1>THE <b>STUDIO</b></h1>
-  <p class="tag">Paste a GitHub repo. The host analyzes it, then talks to you about it — out loud. Hold the mic to interrupt.</p>
+<header class="hero" id="hero">
+  <h1>YOUR CODE IS <b>ON AIR</b></h1>
+  <p class="tag">Paste a GitHub repo. The host analyzes it and talks to you about it — live. Go live and just speak to interrupt him.</p>
 
   <div class="tunein">
-    <input id="url" type="url" placeholder="https://github.com/owner/repo" spellcheck="false">
-    <button id="tunebtn">TUNE&nbsp;IN</button>
+    <input id="url" type="url" value="https://github.com/itsMeJunaid/reporadio" spellcheck="false">
+    <button id="tunebtn"><span>TUNE&nbsp;IN</span></button>
   </div>
 
-  <div class="tuner">
-    <div class="label">analysis band</div>
+  <div class="stationrow" id="stations"></div>
+  <div class="langrow">
+    <span class="mini">language</span>
+    <div id="langs">
+      <button class="lang" data-lang="en">English</button>
+      <button class="lang" data-lang="roman">Roman Urdu</button>
+      <button class="lang" data-lang="mix">Mix</button>
+      <button class="lang" data-lang="ur">اردو</button>
+    </div>
+  </div>
+
+  <div class="band-wrap" id="bandwrap">
     <div class="band">
       <div class="ticks" aria-hidden="true"></div>
       <div class="needle" id="needle"></div>
@@ -39,57 +51,46 @@
       <span data-stage="context">CONTEXT</span>
       <span data-stage="ready">READY</span>
     </div>
-    <div class="statusline" id="statusline">waiting for a frequency…</div>
+    <div class="statusline" id="statusline">pick a station, paste a repo, tune in</div>
   </div>
-</section>
+</header>
 
-<!-- MODE TUNER -->
-<section class="modes">
-  <div class="label">FM TUNER · pick your station</div>
-  <div class="stationrow" id="stations"></div>
-  <div class="langrow">
-    <span class="label">language</span>
-    <div id="langs">
-      <button class="lang" data-lang="en">English</button>
-      <button class="lang" data-lang="roman">Roman Urdu</button>
-      <button class="lang" data-lang="mix">Mix</button>
-      <button class="lang" data-lang="ur">اردو</button>
-    </div>
-  </div>
-</section>
+<!-- STUDIO -->
+<main class="studio" id="studio" hidden>
 
-<!-- BROADCAST CONSOLE -->
-<section class="console" id="console" hidden>
-  <div class="colL">
-    <div class="panel">
-      <div class="label">now playing</div>
-      <div class="segtitle" id="segtitle">—</div>
-      <canvas id="wave" width="560" height="90"></canvas>
-      <div class="controls">
-        <button id="pausebtn" title="Pause">⏸</button>
-        <button id="resumebtn" title="Resume">▶</button>
-        <button id="skipbtn" title="Skip segment">⏭</button>
-        <button id="micbtn" title="Hold to talk">🎙 HOLD&nbsp;TO&nbsp;CALL</button>
-      </div>
-      <div class="michint">hold the mic button, ask your question, release — the host answers from the code</div>
+  <aside class="panel explorer">
+    <div class="phead">📁 repo <span id="exp_meta"></span></div>
+    <div class="tree" id="tree"></div>
+  </aside>
+
+  <section class="stage">
+    <canvas id="orb" width="520" height="440"></canvas>
+    <div class="nowplaying">
+      <div class="seg" id="segtitle">—</div>
+      <div class="line" id="nowline">the host is warming up the mic…</div>
     </div>
-    <div class="panel deck">
-      <div class="label">📼 version deck</div>
-      <div id="versions" class="versions">no versions yet</div>
+    <div class="deck">
+      <button class="ctl" id="pausebtn" title="Pause">⏸</button>
+      <button class="golive" id="livebtn"><i></i><span>GO&nbsp;LIVE</span></button>
+      <button class="ctl" id="skipbtn" title="Skip segment">⏭</button>
     </div>
-  </div>
-  <div class="colR panel">
-    <div class="label">live transcript</div>
-    <div id="transcript" class="transcript"></div>
-  </div>
-</section>
+    <div class="livehint" id="livehint">go live, then just talk — the host stops and listens 🎧 headphones optional (echo-cancel on)</div>
+  </section>
+
+  <aside class="panel feed">
+    <div class="phead">📼 live transcript</div>
+    <div class="transcript" id="transcript"></div>
+  </aside>
+
+</main>
 
 <footer>
   <span id="f_latency">latency —</span>
   <span id="f_voice">voice —</span>
-  <span>LLM groq · llama-3.3-70b</span>
-  <span>STT whisper-v3-turbo</span>
-  <span id="f_mic">mic idle</span>
+  <span>groq · llama-3.3-70b</span>
+  <span>whisper-v3-turbo</span>
+  <span>silero vad</span>
+  <span id="f_mic">mic off</span>
 </footer>
 
 <script src="app.js"></script>

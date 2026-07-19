@@ -1,4 +1,4 @@
-/* RepoRadio Studio — no external libraries. */
+/* RepoRadio Studio v2 — live agent mode, 3D particle orb. No external libraries. */
 "use strict";
 
 const $ = (id) => document.getElementById(id);
@@ -7,41 +7,39 @@ const STAGE_ORDER = ["ingest", "index", "context", "ready"];
 
 let ws = null;
 let currentMode = "standard";
-let currentLang = null; // null = mode default
+let currentLang = null;
 let tunedAt = 0;
 let gotFirstAudio = false;
 
-/* ---------------------------------------------------------- tuner ticks */
 const ticks = document.querySelector(".ticks");
 for (let i = 0; i < 40; i++) ticks.appendChild(document.createElement("i"));
 
-/* ---------------------------------------------------------- audio out */
+/* =============================================== audio out (gapless) */
 const player = {
   ctx: null, analyser: null, nextTime: 0, sources: new Set(),
   ensure() {
     if (!this.ctx) {
       this.ctx = new (window.AudioContext || window.webkitAudioContext)();
       this.analyser = this.ctx.createAnalyser();
-      this.analyser.fftSize = 512;
+      this.analyser.fftSize = 1024;
       this.analyser.connect(this.ctx.destination);
     }
     if (this.ctx.state === "suspended") this.ctx.resume();
   },
   play(b64, samplerate) {
     this.ensure();
-    const raw = atob(b64);
-    const n = raw.length / 2;
-    const i16 = new Int16Array(n);
-    for (let i = 0; i < n; i++)
-      i16[i] = (raw.charCodeAt(2 * i) | (raw.charCodeAt(2 * i + 1) << 8)) << 16 >> 16;
+    const raw = atob(b64), n = raw.length / 2;
     const f32 = new Float32Array(n);
-    for (let i = 0; i < n; i++) f32[i] = i16[i] / 32768;
+    for (let i = 0; i < n; i++) {
+      const v = (raw.charCodeAt(2 * i) | (raw.charCodeAt(2 * i + 1) << 8)) << 16 >> 16;
+      f32[i] = v / 32768;
+    }
     const buf = this.ctx.createBuffer(1, n, samplerate);
     buf.copyToChannel(f32, 0);
     const src = this.ctx.createBufferSource();
     src.buffer = buf;
     src.connect(this.analyser);
-    const t = Math.max(this.ctx.currentTime + 0.05, this.nextTime);
+    const t = Math.max(this.ctx.currentTime + 0.06, this.nextTime);
     src.start(t);
     this.nextTime = t + buf.duration;
     this.sources.add(src);
@@ -54,11 +52,15 @@ const player = {
     this.nextTime = 0;
     updateOnAir();
   },
-  suspend() { if (this.ctx) this.ctx.suspend(); updateOnAir(); },
-  resume() { if (this.ctx) this.ctx.resume(); updateOnAir(); },
-  playing() {
-    return this.ctx && this.ctx.state === "running" && this.sources.size > 0;
+  level() {
+    if (!this.analyser || !this.playing()) return 0;
+    const d = new Uint8Array(this.analyser.frequencyBinCount);
+    this.analyser.getByteTimeDomainData(d);
+    let sum = 0;
+    for (let i = 0; i < d.length; i++) { const v = (d[i] - 128) / 128; sum += v * v; }
+    return Math.sqrt(sum / d.length);
   },
+  playing() { return this.ctx && this.ctx.state === "running" && this.sources.size > 0; },
 };
 
 function updateOnAir() {
@@ -68,31 +70,70 @@ function updateOnAir() {
   badge.classList.toggle("live", !!on);
 }
 
-/* ---------------------------------------------------------- waveform */
-const wave = $("wave"), wctx = wave.getContext("2d");
-(function drawWave() {
-  requestAnimationFrame(drawWave);
-  const w = wave.width, h = wave.height;
-  wctx.clearRect(0, 0, w, h);
-  const accent = getComputedStyle(document.body).getPropertyValue("--accent").trim();
-  wctx.strokeStyle = accent; wctx.lineWidth = 2;
-  if (player.analyser && player.playing()) {
-    const data = new Uint8Array(player.analyser.frequencyBinCount);
-    player.analyser.getByteTimeDomainData(data);
-    wctx.beginPath();
-    for (let i = 0; i < data.length; i++) {
-      const x = (i / data.length) * w, y = (data[i] / 255) * h;
-      i ? wctx.lineTo(x, y) : wctx.moveTo(x, y);
-    }
-    wctx.stroke();
-  } else {
-    wctx.globalAlpha = 0.35;
-    wctx.beginPath(); wctx.moveTo(0, h / 2); wctx.lineTo(w, h / 2); wctx.stroke();
-    wctx.globalAlpha = 1;
+/* =============================================== 3D particle orb */
+const orb = $("orb"), octx = orb.getContext("2d");
+const P = [];
+(function initParticles() {
+  const N = 720;
+  for (let i = 0; i < N; i++) {                       // fibonacci sphere
+    const y = 1 - (i / (N - 1)) * 2;
+    const r = Math.sqrt(1 - y * y);
+    const th = i * 2.39996323;
+    P.push({ x: Math.cos(th) * r, y, z: Math.sin(th) * r, tw: Math.random() * 6.28 });
+  }
+  for (let i = 0; i < 140; i++) {                     // equator ring — the "dial"
+    const a = (i / 140) * 6.283;
+    P.push({ x: Math.cos(a) * 1.35, y: 0, z: Math.sin(a) * 1.35, ring: true, tw: Math.random() * 6.28 });
   }
 })();
+let rotY = 0, rotX = -0.35, amp = 0, micAmp = 0;
 
-/* ---------------------------------------------------------- stations */
+function accentRGB() {
+  const c = getComputedStyle(document.body).getPropertyValue("--accent").trim();
+  const m = c.match(/#(..)(..)(..)/);
+  return m ? [parseInt(m[1], 16), parseInt(m[2], 16), parseInt(m[3], 16)] : [255, 176, 58];
+}
+
+(function drawOrb(ts) {
+  requestAnimationFrame(drawOrb);
+  const w = orb.width, h = orb.height, cx = w / 2, cy = h / 2 - 10;
+  octx.clearRect(0, 0, w, h);
+
+  const target = Math.min(1, player.level() * 4 + micAmp * 3);
+  amp += (target - amp) * 0.12;
+  rotY += 0.0035 + amp * 0.012;
+
+  const listening = document.body.dataset.state === "listening" || micAmp > 0.06;
+  const [ar, ag, ab] = listening ? [168, 224, 95] : accentRGB();
+  const base = 118 + amp * 46 + Math.sin(ts / 1600) * 4;
+
+  const cosY = Math.cos(rotY), sinY = Math.sin(rotY);
+  const cosX = Math.cos(rotX), sinX = Math.sin(rotX);
+  for (const p of P) {
+    let x = p.x * cosY - p.z * sinY;
+    let z = p.x * sinY + p.z * cosY;
+    let y = p.y * cosX - z * sinX;
+    z = p.y * sinX + z * cosX;
+    const jitter = p.ring ? 1 : 1 + amp * 0.35 * Math.sin(ts / 90 + p.tw);
+    const persp = 340 / (340 - z * base);
+    const sx = cx + x * base * jitter * persp;
+    const sy = cy + y * base * jitter * persp;
+    const lum = (z + 1.4) / 2.4;
+    const size = (p.ring ? 1.1 : 1.5) * persp * (0.6 + amp * 0.8);
+    octx.fillStyle = `rgba(${ar},${ag},${ab},${(p.ring ? 0.5 : 0.75) * lum})`;
+    octx.beginPath();
+    octx.arc(sx, sy, Math.max(0.4, size), 0, 6.283);
+    octx.fill();
+  }
+  // core glow
+  const g = octx.createRadialGradient(cx, cy, 0, cx, cy, base * 0.9);
+  g.addColorStop(0, `rgba(${ar},${ag},${ab},${0.10 + amp * 0.22})`);
+  g.addColorStop(1, "rgba(0,0,0,0)");
+  octx.fillStyle = g;
+  octx.fillRect(0, 0, w, h);
+})(0);
+
+/* =============================================== stations + langs */
 async function loadStations() {
   const modes = await (await fetch("/api/modes")).json();
   const row = $("stations");
@@ -100,7 +141,7 @@ async function loadStations() {
   modes.forEach((m) => {
     const btn = document.createElement("button");
     btn.className = "station" + (m.key === currentMode ? " active" : "");
-    btn.innerHTML = `<span class="fq">${m.freq}</span><span class="nm">${m.key}</span><span class="vb">${m.title}</span>`;
+    btn.innerHTML = `<span class="fq">${m.freq}</span><span class="meta"><span class="nm">${m.key}</span><span class="vb">${m.title.split("—")[1] || m.title}</span></span>`;
     btn.onclick = () => {
       currentMode = m.key;
       currentLang = null;
@@ -108,7 +149,7 @@ async function loadStations() {
       document.querySelectorAll(".station").forEach((b) => b.classList.remove("active"));
       btn.classList.add("active");
       markLang(m.language);
-      status(`station set: <b>${m.freq} ${m.key}</b> — tune in to start the show`);
+      status(`station: <b>${m.freq} ${m.key}</b> — tune in when ready`);
     };
     row.appendChild(btn);
   });
@@ -121,7 +162,7 @@ document.querySelectorAll(".lang").forEach((b) => {
   b.onclick = () => { currentLang = b.dataset.lang; markLang(currentLang); };
 });
 
-/* ---------------------------------------------------------- stage needle */
+/* =============================================== stage + status */
 function setStage(stage) {
   if (!(stage in STAGE_POS)) return;
   $("needle").style.left = STAGE_POS[stage];
@@ -133,12 +174,16 @@ function setStage(stage) {
   });
 }
 function status(html) { $("statusline").innerHTML = html; }
+function setState(st, label) {
+  document.body.dataset.state = st;
+  $("navstate").textContent = label || st;
+}
 
-/* ---------------------------------------------------------- transcript */
+/* =============================================== transcript */
 function addLine(who, text, files) {
   const div = document.createElement("div");
   div.className = `tline ${who}`;
-  const label = { host: "🎙 host", you: "📞 you", err: "⚠ studio", seg: "" }[who] || who;
+  const label = { host: "🎙 host", you: "📞 you", err: "⚠ studio" }[who] || who;
   div.innerHTML = `<span class="who">${label}</span><p></p>`;
   div.querySelector("p").textContent = text;
   if (files && files.length) {
@@ -150,20 +195,57 @@ function addLine(who, text, files) {
   const t = $("transcript");
   t.appendChild(div);
   t.scrollTop = t.scrollHeight;
-  return div;
 }
 
-/* ---------------------------------------------------------- tune in */
+/* =============================================== repo explorer */
+function buildTree(paths) {
+  const root = {};
+  paths.forEach((f) => {
+    const parts = f.path.split("/");
+    let node = root;
+    parts.forEach((part, i) => {
+      if (i === parts.length - 1) (node.__files = node.__files || []).push({ ...f, name: part });
+      else node = node[part] = node[part] || {};
+    });
+  });
+  const fmt = (n) => n > 1024 ? `${(n / 1024).toFixed(1)}k` : `${n}`;
+  function render(node, depth) {
+    const frag = document.createDocumentFragment();
+    Object.keys(node).filter((k) => k !== "__files").sort().forEach((dir) => {
+      const det = document.createElement("details");
+      if (depth < 1) det.open = true;
+      const sum = document.createElement("summary");
+      sum.textContent = dir + "/";
+      det.appendChild(sum);
+      det.appendChild(render(node[dir], depth + 1));
+      frag.appendChild(det);
+    });
+    (node.__files || []).sort((a, b) => a.name.localeCompare(b.name)).forEach((f) => {
+      const div = document.createElement("div");
+      div.className = "file" + (f.kept ? " kept" : "");
+      div.innerHTML = `<span>${f.name}</span><span class="sz">${fmt(f.size)}</span>`;
+      div.title = f.path + (f.kept ? " — in the host's digest" : " — trimmed for size");
+      frag.appendChild(div);
+    });
+    return frag;
+  }
+  const box = $("tree");
+  box.innerHTML = "";
+  box.appendChild(render(root, 0));
+}
+
+/* =============================================== tune in + events */
 $("tunebtn").onclick = tuneIn;
 $("url").addEventListener("keydown", (e) => { if (e.key === "Enter") tuneIn(); });
 
 function tuneIn() {
   const url = $("url").value.trim();
   if (!url) { status("paste a GitHub repo URL first"); return; }
-  player.ensure(); // user gesture unlocks audio
+  player.ensure();
   player.flush();
   $("tunebtn").disabled = true;
-  $("console").hidden = false;
+  document.body.classList.add("tuned");
+  $("studio").hidden = false;
   $("transcript").innerHTML = "";
   gotFirstAudio = false;
   tunedAt = performance.now();
@@ -173,21 +255,21 @@ function tuneIn() {
   ws.onopen = () => ws.send(JSON.stringify(
     { type: "tune_in", url, mode: currentMode, lang: currentLang }));
   ws.onmessage = (e) => handle(JSON.parse(e.data));
-  ws.onclose = () => { $("tunebtn").disabled = false; $("navstate").textContent = "off air"; };
+  ws.onclose = () => { $("tunebtn").disabled = false; mic.stop(); setState("idle", "off air"); };
   ws.onerror = () => status("⚠ lost the studio connection");
   setStage("ingest");
   status("📡 tuning in…");
-  $("navstate").textContent = "on air";
+  setState("tuning", "on air");
 }
 
 function handle(ev) {
   switch (ev.type) {
     case "status":
       if (ev.stage === "flush") { player.flush(); break; }
-      if (ev.stage === "off_air") {
-        status(`📻 ${ev.detail} — stay tuned`);
-        break;
-      }
+      if (ev.stage === "listening") { setState("listening", "📞 listening…"); $("nowline").textContent = "…go ahead, caller"; break; }
+      if (ev.stage === "thinking") { setState("thinking", "checking the code…"); $("nowline").textContent = "checking the code…"; break; }
+      if (ev.stage === "on_air") { setState("onair", "on air"); break; }
+      if (ev.stage === "off_air") { status(`📻 ${ev.detail} — stay tuned`); setState("idle", "show over"); break; }
       setStage(ev.stage);
       status(ev.detail);
       break;
@@ -196,23 +278,24 @@ function handle(ev) {
       const chip = $("repochip");
       chip.hidden = false;
       chip.textContent = `${ev.repo} @ ${ev.commit}`;
-      status(`<b>${ev.repo}</b> — ${ev.files} files, ~${ev.tokens.toLocaleString()} tokens · ${ev.freq} ${ev.mode}`);
+      status(`<b>${ev.repo}</b> — ${ev.files} files in the show, ~${ev.tokens.toLocaleString()} tokens · ${ev.freq} ${ev.mode}`);
       $("f_voice").innerHTML = `voice <b>${ev.voice}</b>`;
-      loadVersions(ev.repo);
+      $("exp_meta").textContent = `${ev.repo}`;
+      if (ev.paths && ev.paths.length) buildTree(ev.paths);
+      setState("onair", "on air");
       break;
     }
     case "segment_start":
       $("segtitle").textContent = `${ev.n}. ${ev.title}`;
-      addLine("seg", "");
       break;
     case "transcript_line":
       addLine(ev.who, ev.text, ev.files);
+      if (ev.who === "host") $("nowline").textContent = ev.text;
       break;
     case "audio_chunk":
       if (!gotFirstAudio) {
         gotFirstAudio = true;
-        const s = ((performance.now() - tunedAt) / 1000).toFixed(1);
-        $("f_latency").innerHTML = `latency <b>${s}s</b> to first audio`;
+        $("f_latency").innerHTML = `latency <b>${((performance.now() - tunedAt) / 1000).toFixed(1)}s</b>`;
       }
       player.play(ev.data, ev.samplerate);
       break;
@@ -223,51 +306,37 @@ function handle(ev) {
   }
 }
 
-async function loadVersions(repo) {
-  try {
-    const data = await (await fetch(`/api/versions/${repo}`)).json();
-    const box = $("versions");
-    if (!data.versions.length) { box.textContent = "no versions yet"; return; }
-    box.innerHTML = "";
-    data.versions.slice().reverse().forEach((v, i) => {
-      const row = document.createElement("div");
-      row.className = "vrow";
-      row.innerHTML = `<b>${v.commit}</b><span class="vd">${v.analyzed_at}</span>` +
-        `<span class="vd">${v.files} files · ${v.languages}</span>` +
-        (i === 0 ? `<span class="vd">← latest</span>` : "");
-      box.appendChild(row);
-    });
-    if (data.episodes) {
-      const ep = document.createElement("div");
-      ep.className = "vd";
-      ep.textContent = `${data.episodes} changelog episode(s) in the archive — reporadio changelog <url>`;
-      box.appendChild(ep);
-    }
-  } catch (e) { /* deck is optional */ }
-}
+/* =============================================== controls */
+const send = (obj) => ws && ws.readyState === 1 && ws.send(JSON.stringify(obj));
+let pausedLocal = false;
+$("pausebtn").onclick = () => {
+  pausedLocal = !pausedLocal;
+  $("pausebtn").textContent = pausedLocal ? "▶" : "⏸";
+  if (pausedLocal) { send({ type: "pause" }); player.ctx && player.ctx.suspend(); }
+  else { send({ type: "resume" }); player.ctx && player.ctx.resume(); }
+};
+$("skipbtn").onclick = () => { send({ type: "skip" }); player.flush(); };
 
-/* ---------------------------------------------------------- controls */
-const send = (type) => ws && ws.readyState === 1 && ws.send(JSON.stringify({ type }));
-$("pausebtn").onclick = () => { send("pause"); player.suspend(); };
-$("resumebtn").onclick = () => { send("resume"); player.resume(); };
-$("skipbtn").onclick = () => { send("skip"); player.flush(); };
-
-/* ---------------------------------------------------------- push-to-talk */
+/* =============================================== live agent mic */
 const mic = {
-  stream: null, ctx: null, node: null, src: null, live: false,
+  live: false, stream: null, ctx: null, node: null, src: null,
   async start() {
     if (this.live || !ws || ws.readyState !== 1) return;
     try {
-      this.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      this.stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+      });
     } catch (e) {
-      addLine("err", "mic permission denied — allow the microphone to call the station");
+      addLine("err", "mic permission denied — allow the microphone to go live");
       return;
     }
     this.live = true;
-    $("micbtn").classList.add("live");
-    $("micbtn").textContent = "🔴 LIVE — release to send";
+    send({ type: "mic", live: true });
+    $("livebtn").classList.add("live");
+    $("livebtn").querySelector("span").textContent = "LIVE — just talk";
     $("f_mic").innerHTML = "mic <b>LIVE</b>";
-    player.flush();           // local barge-in: silence the host instantly
+    $("f_mic").classList.add("live");
+    $("livehint").textContent = "you're live — speak anytime, the host stops and listens";
     this.ctx = new AudioContext();
     this.src = this.ctx.createMediaStreamSource(this.stream);
     this.node = this.ctx.createScriptProcessor(4096, 1, 1);
@@ -275,6 +344,9 @@ const mic = {
     this.node.onaudioprocess = (e) => {
       if (!this.live) return;
       const input = e.inputBuffer.getChannelData(0);
+      let sum = 0;
+      for (let i = 0; i < input.length; i += 16) sum += input[i] * input[i];
+      micAmp = Math.min(1, Math.sqrt(sum / (input.length / 16)) * 6);
       const outLen = Math.floor((input.length * 16000) / inRate);
       const i16 = new Int16Array(outLen);
       for (let i = 0; i < outLen; i++) {
@@ -284,7 +356,7 @@ const mic = {
       let bin = "";
       const bytes = new Uint8Array(i16.buffer);
       for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
-      ws.send(JSON.stringify({ type: "caller_audio", data: btoa(bin), end: false }));
+      send({ type: "caller_audio", data: btoa(bin), end: false });
     };
     this.src.connect(this.node);
     this.node.connect(this.ctx.destination);
@@ -292,22 +364,21 @@ const mic = {
   stop() {
     if (!this.live) return;
     this.live = false;
-    $("micbtn").classList.remove("live");
-    $("micbtn").innerHTML = "🎙 HOLD&nbsp;TO&nbsp;CALL";
-    $("f_mic").textContent = "mic idle";
+    micAmp = 0;
+    send({ type: "mic", live: false });
+    $("livebtn").classList.remove("live");
+    $("livebtn").querySelector("span").innerHTML = "GO&nbsp;LIVE";
+    $("f_mic").textContent = "mic off";
+    $("f_mic").classList.remove("live");
+    $("livehint").textContent = "go live, then just talk — the host stops and listens";
     if (this.node) this.node.disconnect();
     if (this.src) this.src.disconnect();
     if (this.ctx) this.ctx.close();
     if (this.stream) this.stream.getTracks().forEach((t) => t.stop());
-    if (ws && ws.readyState === 1)
-      ws.send(JSON.stringify({ type: "caller_audio", data: "", end: true }));
   },
 };
-const micbtn = $("micbtn");
-micbtn.addEventListener("pointerdown", (e) => { e.preventDefault(); mic.start(); });
-micbtn.addEventListener("pointerup", () => mic.stop());
-micbtn.addEventListener("pointerleave", () => mic.stop());
+$("livebtn").onclick = () => (mic.live ? mic.stop() : mic.start());
 
-/* ---------------------------------------------------------- boot */
+/* =============================================== boot */
 loadStations();
 markLang("en");

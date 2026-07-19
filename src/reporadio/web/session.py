@@ -1,6 +1,10 @@
 """One browser connection = one WebSession. A thin wrapper around the same core
-the CLI uses — fetcher, index, show/script, session/caller, voice/tts — that
-emits protocol events instead of drawing a terminal."""
+the CLI uses — fetcher, index, show/script, session/caller, voice/tts, voice/vad —
+that emits protocol events instead of drawing a terminal.
+
+Live agent mode: the browser streams its mic continuously; the SAME Silero VAD
+machinery the CLI uses (vad.Mic.process_chunk) runs server-side on that stream,
+so barge-in works exactly like the terminal: speak → host stops → answer → resume."""
 
 from __future__ import annotations
 
@@ -14,6 +18,7 @@ import numpy as np
 from reporadio.web.events import event
 
 CHUNK_SAMPLES = 12000  # 0.5s @ 24kHz per audio_chunk
+VAD_BLOCK = 512        # silero wants exact 512-sample blocks @16k
 
 
 def _b64_int16(samples: np.ndarray) -> str:
@@ -37,6 +42,10 @@ class WebSession:
         self.engine = None
         self.mode = None
         self.lang = "en"
+        # live agent mode
+        self._mic = None           # vad.Mic driven manually via process_chunk
+        self._vad_buf = np.zeros(0, dtype=np.float32)
+        self._answering = threading.Event()
 
     # ------------------------------------------------------------- plumbing
 
@@ -60,6 +69,15 @@ class WebSession:
             target=self._pipeline, args=(url, mode_name, lang), daemon=True
         )
         self._thread.start()
+
+    def _explorer_paths(self, digest) -> list[dict]:
+        """File list for the repo explorer box: every parsed file + kept flag."""
+        sizes = digest.sizes or {p: len(t) for p, t in digest.files.items()}
+        kept = set(digest.files)
+        return [
+            {"path": p, "size": n, "kept": p in kept}
+            for p, n in sorted(sizes.items())[:600]
+        ]
 
     def _pipeline(self, url: str, mode_name: str, lang: str | None) -> None:
         try:
@@ -94,6 +112,8 @@ class WebSession:
                 tokens=d.token_estimate, mode=self.mode.key, freq=self.mode.freq,
                 voice=f"{self.engine.name} · {self.mode.voice.name}",
                 greeting=self.mode.greeting,
+                tree=d.tree[:12000],
+                paths=self._explorer_paths(d),
             )
 
             if self.mode.greeting and not self.stopped.is_set():
@@ -120,6 +140,8 @@ class WebSession:
                 self.emit("transcript_line", who="host", text=seg.spoken_text)
                 self._speak(seg.spoken_text)
 
+            while self._answering.is_set() and not self.stopped.is_set():
+                time.sleep(0.1)  # let a late caller answer finish before sign-off
             self.emit("status", stage="off_air", detail=f"that's the show — {n} segments")
         except Exception as err:  # surface anything to the studio
             self.emit("error", message=f"Station's off the air — {err}")
@@ -147,31 +169,70 @@ class WebSession:
                 last=start + CHUNK_SAMPLES >= total,
             )
 
-    # ------------------------------------------------------------- caller
+    # ------------------------------------------------------------- live agent mode
+
+    def set_mic(self, live: bool) -> None:
+        if live and self._mic is None:
+            try:
+                from reporadio.voice.vad import Mic
+
+                self._mic = Mic(on_speech=self._on_speech)  # never .start()ed:
+                self._vad_buf = np.zeros(0, dtype=np.float32)  # we feed it ourselves
+                self.emit("status", stage="on_air",
+                          detail="🔴 live — just talk, the host will yield")
+            except Exception as err:
+                self.emit("error", message=f"Couldn't arm the caller line — {err}")
+        elif not live and self._mic is not None:
+            self._mic = None
+            self._vad_buf = np.zeros(0, dtype=np.float32)
+            self.emit("status", stage="on_air", detail="caller line closed")
+
+    def _on_speech(self) -> None:
+        """VAD heard the caller start talking — barge in NOW."""
+        self.paused.set()
+        self.emit("status", stage="flush", detail="caller barged in")
+        self.emit("status", stage="listening", detail="listening…")
 
     def caller_chunk(self, b64data: str, end: bool) -> None:
+        if self._mic is not None:
+            if b64data and not self._answering.is_set():
+                pcm = np.frombuffer(base64.b64decode(b64data), dtype="<i2")
+                self._vad_buf = np.concatenate(
+                    [self._vad_buf, pcm.astype(np.float32) / 32767.0]
+                )
+                while len(self._vad_buf) >= VAD_BLOCK:
+                    self._mic.process_chunk(self._vad_buf[:VAD_BLOCK])
+                    self._vad_buf = self._vad_buf[VAD_BLOCK:]
+                utt = self._mic.utterance(timeout=0)
+                if utt is not None:
+                    self._answering.set()
+                    self.emit("status", stage="thinking", detail="checking the code…")
+                    threading.Thread(
+                        target=self._answer, args=(utt,), daemon=True
+                    ).start()
+            return
+
+        # push-to-talk fallback (no server VAD armed)
         if b64data:
             pcm = np.frombuffer(base64.b64decode(b64data), dtype="<i2")
             self._caller_chunks.append(pcm.astype(np.float32) / 32767.0)
         if not end:
-            self.paused.set()  # local barge-in: hold the show while they talk
+            self.paused.set()
             return
         utterance = (
             np.concatenate(self._caller_chunks) if self._caller_chunks else None
         )
         self._caller_chunks = []
-        threading.Thread(
-            target=self._answer, args=(utterance,), daemon=True
-        ).start()
+        self._answering.set()
+        threading.Thread(target=self._answer, args=(utterance,), daemon=True).start()
 
     def _answer(self, utterance) -> None:
         try:
-            if utterance is None or len(utterance) < 1600:  # <0.1s = misclick
+            if utterance is None or len(utterance) < 4800:  # <0.3s = blip
                 return
             if self.index is None:
                 self.emit("error", message="Tune in to a repo before calling the station.")
                 return
-            self.emit("status", stage="flush", detail="caller on the line")
             from reporadio.session.caller import answer_question
             from reporadio.voice.stt import transcribe
 
@@ -187,4 +248,6 @@ class WebSession:
         except Exception as err:
             self.emit("error", message=f"Lost the caller — {err}")
         finally:
+            self._answering.clear()
             self.paused.clear()
+            self.emit("status", stage="on_air", detail="back to the show")

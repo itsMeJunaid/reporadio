@@ -1,16 +1,19 @@
 """Typed WebSocket event protocol between the studio page and the server.
 
 server → client:
-  status          {stage: ingest|index|context|flush|off_air, detail}
+  status          {stage: ingest|index|context|flush|listening|thinking|on_air|off_air, detail}
   segment_start   {n, title}
   transcript_line {who: host|you, text, files?}
   audio_chunk     {data: base64 int16 PCM mono, samplerate, last: bool}
-  ready           {repo, commit, files, tokens, mode, freq, voice, greeting}
+  ready           {repo, commit, files, tokens, mode, freq, voice, greeting, tree, paths}
   error           {message}
 
 client → server:
   tune_in       {url, mode, lang}
+  mic           {live: bool}                       — live agent mode on/off
   caller_audio  {data: base64 int16 PCM mono @16k, end: bool}
+                 live mode: continuous chunks, server VAD does barge-in
+                 push-to-talk fallback: chunks then {end: true}
   pause | resume | skip {}
 """
 
@@ -39,12 +42,18 @@ class CallerAudio(BaseModel):
     end: bool = False
 
 
+class MicLive(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    live: bool = True
+
+
 class Control(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
 
 _CLIENT_MODELS: dict[str, type[BaseModel]] = {
     "tune_in": TuneIn,
+    "mic": MicLive,
     "caller_audio": CallerAudio,
     "pause": Control,
     "resume": Control,

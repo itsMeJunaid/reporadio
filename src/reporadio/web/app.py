@@ -72,6 +72,8 @@ def create_app() -> FastAPI:
                     continue
                 if type_ == "tune_in":
                     session.tune_in(payload.url, payload.mode, payload.lang)
+                elif type_ == "mic":
+                    session.set_mic(payload.live)
                 elif type_ == "caller_audio":
                     session.caller_chunk(payload.data, payload.end)
                 elif type_ == "pause":

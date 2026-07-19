@@ -12,7 +12,9 @@ answers from the actual code and the show resumes. All four stations, four
 languages, versioned archive, changelog episodes — CLI and web share the same
 core.
 
-## Quickstart (dev)
+## Quickstart
+
+**With uv (recommended):**
 
 ```bash
 uv sync
@@ -26,6 +28,21 @@ uv run reporadio versions  https://github.com/fastapi/typer   # the archive
 uv run reporadio changelog https://github.com/fastapi/typer   # what's new, on air
 uv run reporadio serve                                        # 🎛 the browser studio
 ```
+
+**With plain pip:**
+
+```bash
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt   # download all deps first
+pip install -e .                  # then install reporadio itself
+cp .env.example .env              # add your free Groq key
+reporadio serve                   # or: reporadio tour <url>
+```
+
+In the studio, hit **GO LIVE** — no buttons to hold. Just talk: Silero VAD hears
+you server-side, the host stops mid-word, answers from the code, and the show
+resumes. Browser echo-cancellation is on, so speakers work; headphones are
+still cleaner.
 
 Any mode in any language: `--lang en|ur|roman|mix` (e.g. the standard tour in
 Roman Urdu: `--mode standard --lang roman`). Adding a station = one entry in

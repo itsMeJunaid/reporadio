@@ -28,6 +28,15 @@ def test_parse_controls():
         assert parse_client({"type": t})[0] == t
 
 
+def test_parse_mic_live_toggle():
+    _, payload = parse_client({"type": "mic", "live": True})
+    assert payload.live is True
+    _, payload = parse_client({"type": "mic", "live": False})
+    assert payload.live is False
+    _, payload = parse_client({"type": "mic"})  # defaults to on
+    assert payload.live is True
+
+
 def test_unknown_type_rejected():
     with pytest.raises(ProtocolError) as err:
         parse_client({"type": "explode"})
