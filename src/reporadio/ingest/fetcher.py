@@ -54,6 +54,32 @@ def is_excluded(path: str) -> bool:
     )
 
 
+def fetch_commit_messages(name: str, limit: int = 30) -> list[str]:
+    """Recent commit messages via the GitHub API — prime roast material.
+    Best-effort: returns [] offline or when rate-limited."""
+    import json
+    from urllib.request import Request, urlopen
+
+    url = f"https://api.github.com/repos/{name}/commits?per_page={limit}"
+    try:
+        req = Request(
+            url,
+            headers={
+                "Accept": "application/vnd.github+json",
+                "User-Agent": "reporadio",
+            },
+        )
+        with urlopen(req, timeout=15) as resp:
+            data = json.load(resp)
+        return [
+            c["commit"]["message"].splitlines()[0][:100]
+            for c in data
+            if isinstance(c, dict) and "commit" in c
+        ]
+    except Exception:
+        return []
+
+
 def head_commit(url: str) -> str:
     """HEAD hash without cloning; 'latest' when the remote can't be reached."""
     try:

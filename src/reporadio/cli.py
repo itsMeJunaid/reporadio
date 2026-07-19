@@ -30,13 +30,54 @@ def main(
     """Your code is now on air."""
 
 
+def _broadcast(
+    url: str, mode_name: str, lang: str | None, engine: str | None,
+    voice: str | None, mute: bool, max_tokens: int, no_cache: bool, no_mic: bool,
+) -> None:
+    _require_key_or_exit()
+
+    from reporadio.ingest.fetcher import IngestError
+    from reporadio.session.broadcaster import Broadcaster
+    from reporadio.show.modes import ModeError, get_mode, language_block
+    from reporadio.show.script import ScriptError
+    from reporadio.voice.tts import TTSError, get_engine
+
+    try:
+        mode = get_mode(mode_name)
+        language_block(lang or mode.language)  # validate early
+    except ModeError as err:
+        console.print(f"[red]📻 {err}[/]")
+        raise typer.Exit(1)
+
+    tts_engine = get_engine(
+        engine or mode.voice.engine, voice or mode.voice.name, console
+    )
+    player = _make_player(mute)
+
+    try:
+        Broadcaster(
+            console, tts_engine, player, mode=mode, lang=lang,
+            mic_enabled=not (no_mic or mute),
+        ).run(url, max_tokens=max_tokens, use_cache=not no_cache)
+    except (IngestError, ScriptError, TTSError) as err:
+        console.print(f"[red]📻 Station's off the air — {err}[/]")
+        raise typer.Exit(1)
+
+
 @app.command()
 def tour(
     url: str = typer.Argument(..., help="GitHub repo URL to tour"),
-    engine: str = typer.Option(
-        "auto", "--engine", help="TTS engine: auto | kokoro | edge"
+    mode: str = typer.Option(
+        "standard", "--mode", "-m",
+        help="Station: standard | casual | fun_roast | desi",
     ),
-    voice: str = typer.Option(None, "--voice", help="Voice name for the engine"),
+    lang: str = typer.Option(
+        None, "--lang", "-l", help="en | ur | roman | mix (default: mode's own)"
+    ),
+    engine: str = typer.Option(
+        None, "--engine", help="Override TTS engine: auto | kokoro | edge"
+    ),
+    voice: str = typer.Option(None, "--voice", help="Override voice name"),
     mute: bool = typer.Option(
         False, "--mute", help="No audio — print the show transcript only"
     ),
@@ -49,24 +90,43 @@ def tour(
         False, "--no-mic", help="Broadcast only — don't open the caller line"
     ),
 ) -> None:
-    """Broadcast a spoken guided tour of a repo. Talk to interrupt the host."""
-    _require_key_or_exit()
+    """Broadcast a spoken tour of a repo. Talk to interrupt the host."""
+    _broadcast(url, mode, lang, engine, voice, mute, max_tokens, no_cache, no_mic)
 
-    from reporadio.ingest.fetcher import IngestError
-    from reporadio.session.broadcaster import Broadcaster
-    from reporadio.show.script import ScriptError
-    from reporadio.voice.tts import TTSError, get_engine
 
-    tts_engine = get_engine(engine, voice, console)
-    player = _make_player(mute)
+@app.command()
+def roast(
+    url: str = typer.Argument(..., help="GitHub repo URL to roast 🔥"),
+    lang: str = typer.Option(None, "--lang", "-l", help="en | ur | roman | mix"),
+    engine: str = typer.Option(None, "--engine", help="Override TTS engine"),
+    voice: str = typer.Option(None, "--voice", help="Override voice name"),
+    mute: bool = typer.Option(False, "--mute", help="Transcript only"),
+    max_tokens: int = typer.Option(8000, "--max-tokens", help="Digest token budget"),
+    no_cache: bool = typer.Option(False, "--no-cache", help="Re-ingest, skip cache"),
+    no_mic: bool = typer.Option(False, "--no-mic", help="No caller line"),
+) -> None:
+    """Tune straight to Roast FM — the code gets cooked, live on air."""
+    _broadcast(url, "fun_roast", lang, engine, voice, mute, max_tokens, no_cache, no_mic)
 
-    try:
-        Broadcaster(
-            console, tts_engine, player, mic_enabled=not (no_mic or mute)
-        ).run(url, max_tokens=max_tokens, use_cache=not no_cache)
-    except (IngestError, ScriptError, TTSError) as err:
-        console.print(f"[red]📻 Station's off the air — {err}[/]")
-        raise typer.Exit(1)
+
+@app.command()
+def stations() -> None:
+    """What's on the dial."""
+    from rich.table import Table
+
+    from reporadio.show.modes import load_modes
+
+    table = Table(title="📻 REPORADIO — on the dial", border_style="yellow")
+    table.add_column("Freq", style="bold yellow")
+    table.add_column("Station", style="bold")
+    table.add_column("Vibe")
+    table.add_column("Voice", style="dim")
+    for m in load_modes().values():
+        table.add_row(m.freq, m.key, m.title, f"{m.voice.engine} · {m.voice.name}")
+    console.print(table)
+    console.print(
+        "[dim]Tune in:  reporadio tour <url> --mode desi   ·   reporadio roast <url>[/]"
+    )
 
 
 @app.command()

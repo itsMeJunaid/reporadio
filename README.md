@@ -4,20 +4,26 @@
 > explains (or roasts) the codebase out loud. Interrupt it with your voice,
 > ask anything.
 
-**v0.2.0 — the caller line is open.** `reporadio tour <url>` speaks a guided
-tour of any repo — and now you can **interrupt the host with your voice**:
-Silero VAD cuts the TTS the instant you talk, Groq Whisper transcribes you,
-and the host answers from a ChromaDB index of the actual code, then resumes
-the show right where it stopped.
+**v0.3.0 — four stations on the dial.** Guided tour, casual chai-chat,
+a full comedy roast, and **Desi FM** — a Roman Urdu host who opens with
+*"Haan G! Repo analyze kar lia — ap ki kya farmaish hai?"* Interrupt any of
+them with your voice; the host answers from the actual code and resumes.
 
 ## Quickstart (dev)
 
 ```bash
 uv sync
 cp .env.example .env   # paste your free Groq key from console.groq.com
-uv run reporadio tour https://github.com/fastapi/typer   # talk to interrupt!
-uv run reporadio ask  https://github.com/fastapi/typer "where is the CLI defined?"
+uv run reporadio stations                                # what's on the dial
+uv run reporadio tour  https://github.com/fastapi/typer  # talk to interrupt!
+uv run reporadio tour  https://github.com/fastapi/typer --mode desi
+uv run reporadio roast https://github.com/fastapi/typer  # 🔥
+uv run reporadio ask   https://github.com/fastapi/typer "where is the CLI defined?"
 ```
+
+Any mode in any language: `--lang en|ur|roman|mix` (e.g. the standard tour in
+Roman Urdu: `--mode standard --lang roman`). Adding a station = one entry in
+`show/modes.yaml` + one prompt file — zero code change.
 
 > 🎧 **Use headphones for the live caller mode** — with open speakers the host
 > hears himself through the mic and takes his own calls.

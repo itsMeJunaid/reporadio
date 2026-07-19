@@ -29,6 +29,7 @@ def answer_question(
     model: str = MODEL,
     k: int = 6,
     wait_index_s: float = 30.0,
+    lang: str = "en",
 ) -> QA:
     """Grounded answer from the index; honest fallbacks when we can't answer."""
     if not index.ready.wait(timeout=wait_index_s):
@@ -47,8 +48,10 @@ def answer_question(
 
         client = Groq(api_key=require_groq_key())
 
+    from reporadio.show.modes import language_block
+
     context = "\n\n".join(f"[{h.path}:{h.start_line}]\n{h.text}" for h in hits)
-    system = load_prompt("answer")
+    system = load_prompt("answer") + language_block(lang)
     if len(memory):
         system += "\n\n" + memory.render()
 

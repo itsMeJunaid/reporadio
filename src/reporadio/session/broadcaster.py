@@ -18,13 +18,17 @@ from reporadio.show import script as show_script
 
 class Broadcaster:
     def __init__(
-        self, console, engine, player, station: str = "88.1 Tour FM",
+        self, console, engine, player, mode=None, lang: str | None = None,
         mic_enabled: bool = True,
     ):
+        from reporadio.show.modes import get_mode
+
         self.console = console
         self.engine = engine
         self.player = player
-        self.station = station
+        self.mode = mode or get_mode("standard")
+        self.lang = lang or self.mode.language
+        self.station = f"{self.mode.freq} · {self.mode.key}"
         self.mic_enabled = mic_enabled
 
     def _header(self, repo: str, seg_no: int | str, title: str, state: str) -> Panel:
@@ -80,7 +84,9 @@ class Broadcaster:
                 return
             live.console.print(f"\n[bold green]📞 You:[/] [italic]{question}[/]")
             live.update(self._header(repo, seg_no, title, "🎙 checking the code…"))
-            qa = caller_flow.answer_question(question, index, digest, memory)
+            qa = caller_flow.answer_question(
+                question, index, digest, memory, lang=self.lang
+            )
             live.console.print(f"[bold yellow]🎙 Host:[/] [dim]{qa.answer}[/]")
             if qa.files:
                 live.console.print(f"[dim]   (from: {', '.join(qa.files[:4])})[/]")
@@ -100,7 +106,6 @@ class Broadcaster:
         url: str,
         max_tokens: int = 8000,
         use_cache: bool = True,
-        prompt_name: str = "standard",
     ) -> None:
         t0 = time.monotonic()
         with self.console.status("📡 Tuning in — ingesting the repo…"):
@@ -113,6 +118,18 @@ class Broadcaster:
         if digest.dropped:
             note += f" ({len(digest.dropped)} large files trimmed)"
         self.console.print(note + "[/]")
+
+        extra_context = ""
+        if self.mode.prompt == "fun_roast":
+            with self.console.status("🔥 Pulling the commit history — roast material…"):
+                commits = fetcher.fetch_commit_messages(digest.name)
+            if commits:
+                extra_context = "RECENT COMMIT MESSAGES (roast material):\n" + "\n".join(
+                    f"- {m}" for m in commits
+                )
+                self.console.print(
+                    f"[dim]🔥 {len(commits)} commit messages loaded for the roast[/]"
+                )
 
         from reporadio.index.store import build_index_async
 
@@ -127,7 +144,17 @@ class Broadcaster:
         header = self._header(digest.name, "…", "", "✍ the host is writing the show…")
         try:
             with Live(header, console=self.console, refresh_per_second=8) as live:
-                for seg in show_script.generate_segments(digest, prompt_name=prompt_name):
+                if self.mode.greeting:
+                    live.console.print(f"\n[bold yellow]🎙 Host:[/] {self.mode.greeting}")
+                    self.player.enqueue(self.engine.synth(self.mode.greeting))
+                    first_audio = time.monotonic() - t0
+                for seg in show_script.generate_segments(
+                    digest,
+                    prompt_name=self.mode.prompt,
+                    temperature=self.mode.temperature,
+                    lang=self.lang,
+                    extra_context=extra_context,
+                ):
                     count += 1
                     title = seg.title
                     if mic:

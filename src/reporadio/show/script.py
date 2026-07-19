@@ -68,6 +68,8 @@ def generate_segments(
     model: str = MODEL,
     prompt_name: str = "standard",
     temperature: float = 0.6,
+    lang: str = "en",
+    extra_context: str = "",
 ) -> Iterator[Segment]:
     """Yield Segments as the model streams them; one corrective retry on garbage."""
     if client is None:
@@ -77,9 +79,14 @@ def generate_segments(
 
         client = Groq(api_key=require_groq_key())
 
+    from reporadio.show.modes import language_block
+
+    user_msg = _digest_message(digest)
+    if extra_context:
+        user_msg += f"\n\n{extra_context}"
     messages = [
-        {"role": "system", "content": load_prompt(prompt_name)},
-        {"role": "user", "content": _digest_message(digest)},
+        {"role": "system", "content": load_prompt(prompt_name) + language_block(lang)},
+        {"role": "user", "content": user_msg},
     ]
 
     yielded = False
