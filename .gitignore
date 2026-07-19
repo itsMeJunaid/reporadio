@@ -1,0 +1,22 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Secrets
+.env
+
+# Test / lint caches
+.pytest_cache/
+.ruff_cache/
+
+# RepoRadio data (digests, vector store, sqlite)
+data/
+chroma/
+*.db
