@@ -1,5 +1,6 @@
 """Orchestrates the show: ingest → index (background) → streamed script → TTS →
-live display, with mic barge-in: interrupt → question → grounded answer → resume."""
+live display, with mic barge-in (interrupt → question → grounded answer → resume)
+and changelog episodes between analyzed versions."""
 
 from __future__ import annotations
 
@@ -14,6 +15,10 @@ from reporadio.ingest import fetcher
 from reporadio.session import caller as caller_flow
 from reporadio.session.memory import SessionMemory
 from reporadio.show import script as show_script
+
+
+class ChangelogError(RuntimeError):
+    pass
 
 
 class Broadcaster:
@@ -31,6 +36,8 @@ class Broadcaster:
         self.station = f"{self.mode.freq} · {self.mode.key}"
         self.mic_enabled = mic_enabled
 
+    # ------------------------------------------------------------- helpers
+
     def _header(self, repo: str, seg_no: int | str, title: str, state: str) -> Panel:
         txt = Text()
         txt.append("● ON AIR", style="bold red")
@@ -42,6 +49,23 @@ class Broadcaster:
             txt.append(f" — {title}", style="bold")
         txt.append(f"\n{state}", style="dim italic")
         return Panel(txt, border_style="yellow", title="📻 REPORADIO")
+
+    def _ingest(self, url: str, max_tokens: int, use_cache: bool,
+                at_commit: str | None = None):
+        with self.console.status("📡 Tuning in — ingesting the repo…"):
+            digest = fetcher.fetch(
+                url, max_tokens=max_tokens, use_cache=use_cache, at_commit=at_commit
+            )
+        note = (
+            f"[dim]Ingested [bold]{digest.name}[/bold] @ {digest.commit[:10]} — "
+            f"{len(digest.files)} files, ~{digest.token_estimate:,} tokens"
+        )
+        if digest.dropped:
+            note += f" ({len(digest.dropped)} large files trimmed)"
+        if at_commit:
+            note += " [yellow]⏪ time-travel[/yellow]"
+        self.console.print(note + "[/]")
+        return digest
 
     def _start_mic(self, calls: queue.Queue):
         if not self.mic_enabled:
@@ -96,48 +120,22 @@ class Broadcaster:
         finally:
             for audio in leftovers:  # resume the show exactly where it stopped
                 self.player.enqueue(audio)
-            self.player.wait()  # let the answer + resumed tail play before listening again
+            self.player.wait()  # let the answer + resumed tail play out first
             if mic:
                 mic.resume()
         live.update(self._header(repo, seg_no, title, "🎙 back to the tour…"))
 
-    def run(
-        self,
-        url: str,
-        max_tokens: int = 8000,
-        use_cache: bool = True,
-    ) -> None:
-        t0 = time.monotonic()
-        with self.console.status("📡 Tuning in — ingesting the repo…"):
-            digest = fetcher.fetch(url, max_tokens=max_tokens, use_cache=use_cache)
-
-        note = (
-            f"[dim]Ingested [bold]{digest.name}[/bold] @ {digest.commit[:10]} — "
-            f"{len(digest.files)} files, ~{digest.token_estimate:,} tokens"
-        )
-        if digest.dropped:
-            note += f" ({len(digest.dropped)} large files trimmed)"
-        self.console.print(note + "[/]")
-
-        extra_context = ""
-        if self.mode.prompt == "fun_roast":
-            with self.console.status("🔥 Pulling the commit history — roast material…"):
-                commits = fetcher.fetch_commit_messages(digest.name)
-            if commits:
-                extra_context = "RECENT COMMIT MESSAGES (roast material):\n" + "\n".join(
-                    f"- {m}" for m in commits
-                )
-                self.console.print(
-                    f"[dim]🔥 {len(commits)} commit messages loaded for the roast[/]"
-                )
-
+    def _show(self, digest, segments, t0: float) -> list[tuple[str, str]]:
+        """The live loop shared by tours and changelog episodes.
+        Returns the transcript as (title, spoken_text) pairs."""
         from reporadio.index.store import build_index_async
 
-        index = build_index_async(digest)  # embeds in the background while we talk
+        index = build_index_async(digest)  # embeds while the host talks
         memory = SessionMemory()
         calls: queue.Queue = queue.Queue()
         mic = self._start_mic(calls)
 
+        transcript: list[tuple[str, str]] = []
         first_audio: float | None = None
         count = 0
         title = ""
@@ -148,13 +146,7 @@ class Broadcaster:
                     live.console.print(f"\n[bold yellow]🎙 Host:[/] {self.mode.greeting}")
                     self.player.enqueue(self.engine.synth(self.mode.greeting))
                     first_audio = time.monotonic() - t0
-                for seg in show_script.generate_segments(
-                    digest,
-                    prompt_name=self.mode.prompt,
-                    temperature=self.mode.temperature,
-                    lang=self.lang,
-                    extra_context=extra_context,
-                ):
+                for seg in segments:
                     count += 1
                     title = seg.title
                     if mic:
@@ -167,6 +159,7 @@ class Broadcaster:
                     ))
                     live.console.print(f"\n[bold yellow]— Segment {count}: {title} —[/]")
                     live.console.print(f"[dim]{seg.spoken_text}[/]")
+                    transcript.append((seg.title, seg.spoken_text))
                     audio = self.engine.synth(seg.spoken_text)
                     if first_audio is None:
                         first_audio = time.monotonic() - t0
@@ -189,7 +182,7 @@ class Broadcaster:
         except KeyboardInterrupt:
             self.player.stop()
             self.console.print("\n[red]📻 Off air — caller hung up.[/]")
-            return
+            return transcript
         finally:
             if mic:
                 mic.stop()
@@ -204,3 +197,74 @@ class Broadcaster:
             style="dim",
         )
         self.console.print(Panel.fit(stats, border_style="green", title="📻 SIGN-OFF"))
+        return transcript
+
+    # ------------------------------------------------------------- entrypoints
+
+    def run(
+        self,
+        url: str,
+        max_tokens: int = 8000,
+        use_cache: bool = True,
+        at_commit: str | None = None,
+    ) -> None:
+        t0 = time.monotonic()
+        digest = self._ingest(url, max_tokens, use_cache, at_commit)
+
+        extra_context = ""
+        if self.mode.prompt == "fun_roast":
+            with self.console.status("🔥 Pulling the commit history — roast material…"):
+                commits = fetcher.fetch_commit_messages(digest.name)
+            if commits:
+                extra_context = "RECENT COMMIT MESSAGES (roast material):\n" + "\n".join(
+                    f"- {m}" for m in commits
+                )
+                self.console.print(
+                    f"[dim]🔥 {len(commits)} commit messages loaded for the roast[/]"
+                )
+
+        segments = show_script.generate_segments(
+            digest,
+            prompt_name=self.mode.prompt,
+            temperature=self.mode.temperature,
+            lang=self.lang,
+            extra_context=extra_context,
+        )
+        self._show(digest, segments, t0)
+
+    def run_changelog(self, url: str, max_tokens: int = 8000) -> None:
+        from reporadio.versions import registry
+
+        t0 = time.monotonic()
+        digest = self._ingest(url, max_tokens, use_cache=True)  # records latest
+
+        pair = registry.last_two(digest.name)
+        if pair is None:
+            raise ChangelogError(
+                f"Only one version of {digest.name} on file — a changelog needs two.\n"
+                "Come back after the repo changes (new commits), run "
+                "`reporadio changelog` again, and I'll tell you what's new."
+            )
+        old, new = pair
+        diff = registry.diff_versions(old, new)
+        self.console.print(
+            f"[dim]📼 Comparing {old.commit[:10]} → {new.commit[:10]}: "
+            f"+{len(diff.added)} added · -{len(diff.removed)} removed · "
+            f"~{len(diff.changed)} changed[/]"
+        )
+        if diff.empty:
+            self.console.print(
+                "[yellow]📻 Nothing changed between the last two versions — "
+                "no episode to run.[/]"
+            )
+            return
+
+        segments = show_script.generate_changelog(
+            digest, old, new, diff, mode=self.mode, lang=self.lang
+        )
+        transcript = self._show(digest, segments, t0)
+        if transcript:
+            registry.record_episode(
+                digest.name, old.commit, new.commit, self.mode.key,
+                "\n\n".join(f"— {t} —\n{s}" for t, s in transcript),
+            )

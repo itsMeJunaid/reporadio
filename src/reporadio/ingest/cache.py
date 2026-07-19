@@ -32,3 +32,12 @@ def load(key: str) -> dict | None:
 def save(key: str, payload: dict) -> None:
     path = cache_dir() / f"{key}.json"
     path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+
+
+def find(key_prefix: str) -> dict | None:
+    """First cached digest whose key starts with the prefix (any token budget)."""
+    for path in sorted(cache_dir().glob(f"{key_prefix}*.json")):
+        payload = load(path.stem)
+        if payload:
+            return payload
+    return None

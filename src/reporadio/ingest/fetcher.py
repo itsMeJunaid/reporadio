@@ -164,6 +164,7 @@ class Digest:
     tree: str
     files: dict[str, str]
     dropped: list[str] = field(default_factory=list)
+    sizes: dict[str, int] = field(default_factory=dict)  # ALL files pre-trim → diffs
 
     @property
     def token_estimate(self) -> int:
@@ -181,24 +182,54 @@ class Digest:
         return {
             "url": self.url, "name": self.name, "commit": self.commit,
             "summary": self.summary, "tree": self.tree,
-            "files": self.files, "dropped": self.dropped,
+            "files": self.files, "dropped": self.dropped, "sizes": self.sizes,
         }
 
     @classmethod
     def from_payload(cls, payload: dict) -> "Digest":
+        payload.setdefault("sizes", {})
         return cls(**payload)
 
 
-def fetch(url: str, max_tokens: int = 8000, use_cache: bool = True) -> Digest:
-    """Ingest a repo (or reuse the cached digest for this commit + budget)."""
+def _record(digest: Digest) -> None:
+    """Archive this repo@commit as a version — never let it break the show."""
+    try:
+        from reporadio.versions import registry
+
+        registry.record_version(digest)
+    except Exception:
+        pass
+
+
+def fetch(
+    url: str, max_tokens: int = 8000, use_cache: bool = True,
+    at_commit: str | None = None,
+) -> Digest:
+    """Ingest a repo (or reuse the cached digest for this commit + budget).
+    at_commit: time-travel to a previously analyzed version from the archive."""
     name = repo_name(url)
+
+    if at_commit:
+        payload = cache.find(f"{cache.slugify(name)}-{at_commit[:10]}")
+        if payload is None:
+            from reporadio.versions import registry
+
+            known = ", ".join(v.commit[:10] for v in registry.list_versions(name)) or "none"
+            raise IngestError(
+                f"Commit '{at_commit}' isn't in the archive for {name} — "
+                f"analyzed versions: {known}. Run a tour first, then time-travel."
+            )
+        return Digest.from_payload(payload)
+
     commit = head_commit(url)
     key = f"{cache.slugify(name)}-{commit[:10]}-{max_tokens}"
 
     if use_cache and commit != "latest":
         cached = cache.load(key)
         if cached:
-            return Digest.from_payload(cached)
+            digest = Digest.from_payload(cached)
+            _record(digest)
+            return digest
 
     try:
         from loguru import logger as _loguru
@@ -224,12 +255,14 @@ def fetch(url: str, max_tokens: int = 8000, use_cache: bool = True) -> Digest:
 
     tree = truncate_tree(tree, max_tokens // 4)
     files = {p: t for p, t in parse_content(content).items() if not is_excluded(p)}
+    sizes = {p: len(t) for p, t in files.items()}
     files, dropped = trim_to_cap(files, max_tokens, overhead=tree + summary)
 
     digest = Digest(
         url=url, name=name, commit=commit, summary=summary,
-        tree=tree, files=files, dropped=dropped,
+        tree=tree, files=files, dropped=dropped, sizes=sizes,
     )
     if commit != "latest":
         cache.save(key, digest.to_payload())
+    _record(digest)
     return digest

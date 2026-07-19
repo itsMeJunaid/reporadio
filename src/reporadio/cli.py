@@ -33,11 +33,12 @@ def main(
 def _broadcast(
     url: str, mode_name: str, lang: str | None, engine: str | None,
     voice: str | None, mute: bool, max_tokens: int, no_cache: bool, no_mic: bool,
+    at_commit: str | None = None, changelog: bool = False,
 ) -> None:
     _require_key_or_exit()
 
     from reporadio.ingest.fetcher import IngestError
-    from reporadio.session.broadcaster import Broadcaster
+    from reporadio.session.broadcaster import Broadcaster, ChangelogError
     from reporadio.show.modes import ModeError, get_mode, language_block
     from reporadio.show.script import ScriptError
     from reporadio.voice.tts import TTSError, get_engine
@@ -53,12 +54,22 @@ def _broadcast(
         engine or mode.voice.engine, voice or mode.voice.name, console
     )
     player = _make_player(mute)
+    caster = Broadcaster(
+        console, tts_engine, player, mode=mode, lang=lang,
+        mic_enabled=not (no_mic or mute),
+    )
 
     try:
-        Broadcaster(
-            console, tts_engine, player, mode=mode, lang=lang,
-            mic_enabled=not (no_mic or mute),
-        ).run(url, max_tokens=max_tokens, use_cache=not no_cache)
+        if changelog:
+            caster.run_changelog(url, max_tokens=max_tokens)
+        else:
+            caster.run(
+                url, max_tokens=max_tokens, use_cache=not no_cache,
+                at_commit=at_commit,
+            )
+    except ChangelogError as err:
+        console.print(f"[yellow]📻 {err}[/]")
+        raise typer.Exit(1)
     except (IngestError, ScriptError, TTSError) as err:
         console.print(f"[red]📻 Station's off the air — {err}[/]")
         raise typer.Exit(1)
@@ -89,9 +100,15 @@ def tour(
     no_mic: bool = typer.Option(
         False, "--no-mic", help="Broadcast only — don't open the caller line"
     ),
+    at: str = typer.Option(
+        None, "--at", help="Time-travel: tour a previously analyzed commit"
+    ),
 ) -> None:
     """Broadcast a spoken tour of a repo. Talk to interrupt the host."""
-    _broadcast(url, mode, lang, engine, voice, mute, max_tokens, no_cache, no_mic)
+    _broadcast(
+        url, mode, lang, engine, voice, mute, max_tokens, no_cache, no_mic,
+        at_commit=at,
+    )
 
 
 @app.command()
@@ -107,6 +124,67 @@ def roast(
 ) -> None:
     """Tune straight to Roast FM — the code gets cooked, live on air."""
     _broadcast(url, "fun_roast", lang, engine, voice, mute, max_tokens, no_cache, no_mic)
+
+
+@app.command()
+def changelog(
+    url: str = typer.Argument(..., help="GitHub repo URL"),
+    mode: str = typer.Option("standard", "--mode", "-m", help="Station personality"),
+    lang: str = typer.Option(None, "--lang", "-l", help="en | ur | roman | mix"),
+    engine: str = typer.Option(None, "--engine", help="Override TTS engine"),
+    voice: str = typer.Option(None, "--voice", help="Override voice name"),
+    mute: bool = typer.Option(False, "--mute", help="Transcript only"),
+    max_tokens: int = typer.Option(8000, "--max-tokens", help="Digest token budget"),
+    no_mic: bool = typer.Option(False, "--no-mic", help="No caller line"),
+) -> None:
+    """Broadcast what changed between the last two analyzed versions."""
+    _broadcast(
+        url, mode, lang, engine, voice, mute, max_tokens,
+        no_cache=False, no_mic=no_mic, changelog=True,
+    )
+
+
+@app.command()
+def versions(
+    url: str = typer.Argument(..., help="GitHub repo URL"),
+) -> None:
+    """The archive: every analyzed version of this repo."""
+    from rich.table import Table
+
+    from reporadio.ingest.fetcher import IngestError, repo_name
+    from reporadio.versions import registry
+
+    try:
+        name = repo_name(url)
+    except IngestError as err:
+        console.print(f"[red]📻 {err}[/]")
+        raise typer.Exit(1)
+
+    rows = registry.list_versions(name)
+    if not rows:
+        console.print(
+            f"[yellow]📼 Nothing in the archive for {name} yet — "
+            "run a tour first: reporadio tour <url>[/]"
+        )
+        raise typer.Exit(0)
+
+    table = Table(title=f"📼 {name} — analyzed versions", border_style="yellow")
+    table.add_column("#", style="dim")
+    table.add_column("Commit", style="bold yellow")
+    table.add_column("Analyzed", style="dim")
+    table.add_column("Files", justify="right")
+    table.add_column("~Tokens", justify="right")
+    table.add_column("Languages")
+    for i, v in enumerate(rows, 1):
+        table.add_row(
+            str(i), v.commit[:10], v.analyzed_at,
+            str(v.file_count), f"{v.token_count:,}", v.languages,
+        )
+    console.print(table)
+    console.print(
+        "[dim]Time-travel:  reporadio tour <url> --at <commit>   ·   "
+        "What's new:  reporadio changelog <url>[/]"
+    )
 
 
 @app.command()

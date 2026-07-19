@@ -88,7 +88,57 @@ def generate_segments(
         {"role": "system", "content": load_prompt(prompt_name) + language_block(lang)},
         {"role": "user", "content": user_msg},
     ]
+    yield from _stream_ndjson(messages, client, model, temperature)
 
+
+NDJSON_CONTRACT = (
+    "OUTPUT FORMAT — STRICT:\n"
+    "Reply with NDJSON only: one JSON object per line, nothing else.\n"
+    'Each line: {"title": "short segment title", "spoken_text": "what the host says"}\n'
+    "No markdown fences, no commentary, no blank lines."
+)
+
+
+def generate_changelog(
+    digest,
+    old,
+    new,
+    diff,
+    *,
+    mode,
+    lang: str = "en",
+    client=None,
+    model: str = MODEL,
+) -> Iterator[Segment]:
+    """Changelog episode in the active mode's personality: old → new version."""
+    if client is None:
+        from groq import Groq
+
+        from reporadio.config import require_groq_key
+
+        client = Groq(api_key=require_groq_key())
+
+    from reporadio.show.modes import language_block
+
+    system = (
+        load_prompt(mode.prompt) + load_prompt("changelog") + language_block(lang)
+    )
+    user = (
+        f"CHANGELOG EPISODE — {digest.name}\n"
+        f"Previous version: {old.commit[:10]} (analyzed {old.analyzed_at})\n"
+        f"Latest version:   {new.commit[:10]} (analyzed {new.analyzed_at})\n\n"
+        f"WHAT CHANGED:\n{diff.render()}\n\n"
+        f"CURRENT REPO SUMMARY:\n{digest.summary}\n\n"
+        f"{NDJSON_CONTRACT}\n3 to 5 lines total."
+    )
+    messages = [
+        {"role": "system", "content": system},
+        {"role": "user", "content": user},
+    ]
+    yield from _stream_ndjson(messages, client, model, mode.temperature)
+
+
+def _stream_ndjson(messages, client, model, temperature) -> Iterator[Segment]:
     yielded = False
     for attempt in (1, 2):
         stream = client.chat.completions.create(

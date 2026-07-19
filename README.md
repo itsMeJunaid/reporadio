@@ -4,10 +4,11 @@
 > explains (or roasts) the codebase out loud. Interrupt it with your voice,
 > ask anything.
 
-**v0.3.0 — four stations on the dial.** Guided tour, casual chai-chat,
-a full comedy roast, and **Desi FM** — a Roman Urdu host who opens with
-*"Haan G! Repo analyze kar lia — ap ki kya farmaish hai?"* Interrupt any of
-them with your voice; the host answers from the actual code and resumes.
+**v0.4.0 — the archive is open.** Four stations (tour, chai-chat, roast, and
+**Desi FM** — *"Haan G! Repo analyze kar lia"*), voice interruptions answered
+from the actual code — and now **versioning**: every analysis is archived,
+`reporadio changelog` broadcasts what changed between versions, and
+`--at <commit>` time-travels the tour to an older snapshot.
 
 ## Quickstart (dev)
 
@@ -19,6 +20,8 @@ uv run reporadio tour  https://github.com/fastapi/typer  # talk to interrupt!
 uv run reporadio tour  https://github.com/fastapi/typer --mode desi
 uv run reporadio roast https://github.com/fastapi/typer  # 🔥
 uv run reporadio ask   https://github.com/fastapi/typer "where is the CLI defined?"
+uv run reporadio versions  https://github.com/fastapi/typer   # the archive
+uv run reporadio changelog https://github.com/fastapi/typer   # what's new, on air
 ```
 
 Any mode in any language: `--lang en|ur|roman|mix` (e.g. the standard tour in
