@@ -23,6 +23,15 @@ class SessionMemory:
     def __len__(self) -> int:
         return len(self._items)
 
+    def history_messages(self) -> list[dict]:
+        """Past turns as real chat messages — follow-ups ('shorter', 'in one
+        sentence') then work naturally instead of confusing the retrieval."""
+        messages: list[dict] = []
+        for qa in self._items:
+            messages.append({"role": "user", "content": qa.question})
+            messages.append({"role": "assistant", "content": qa.answer})
+        return messages
+
     def render(self) -> str:
         if not self._items:
             return ""
