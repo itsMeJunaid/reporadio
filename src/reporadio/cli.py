@@ -2,8 +2,6 @@
 
 import typer
 from rich.console import Console
-from rich.panel import Panel
-from rich.text import Text
 
 from reporadio import __version__
 
@@ -35,16 +33,45 @@ def main(
 @app.command()
 def tour(
     url: str = typer.Argument(..., help="GitHub repo URL to tour"),
+    engine: str = typer.Option(
+        "auto", "--engine", help="TTS engine: auto | kokoro | edge"
+    ),
+    voice: str = typer.Option(None, "--voice", help="Voice name for the engine"),
+    mute: bool = typer.Option(
+        False, "--mute", help="No audio — print the show transcript only"
+    ),
+    max_tokens: int = typer.Option(
+        8000, "--max-tokens",
+        help="Digest token budget (Groq free tier fits ~8k comfortably)",
+    ),
+    no_cache: bool = typer.Option(False, "--no-cache", help="Re-ingest, skip cache"),
 ) -> None:
-    """Broadcast a guided tour of a repo (pipeline lands in v0.1)."""
-    banner = Text()
-    banner.append("● ON AIR", style="bold red")
-    banner.append("  ·  88.1 Tour FM\n\n", style="dim")
-    banner.append("Today's repo: ", style="bold")
-    banner.append(url, style="bold yellow")
-    banner.append(
-        "\n\nThe host is still setting up the studio — "
-        "the spoken tour arrives in v0.1.",
-        style="dim italic",
-    )
-    console.print(Panel.fit(banner, border_style="yellow", title="📻 REPORADIO"))
+    """Broadcast a spoken guided tour of a repo."""
+    from reporadio.config import MissingGroqKeyError, require_groq_key
+
+    try:
+        require_groq_key()
+    except MissingGroqKeyError as err:
+        console.print(f"[red]{err}[/]")
+        raise typer.Exit(1)
+
+    from reporadio.ingest.fetcher import IngestError
+    from reporadio.session.broadcaster import Broadcaster
+    from reporadio.show.script import ScriptError
+    from reporadio.voice.player import NullPlayer, Player, PlayerError
+    from reporadio.voice.tts import TTSError, get_engine
+
+    tts_engine = get_engine(engine, voice, console)
+    try:
+        player = NullPlayer() if mute else Player()
+    except PlayerError as err:
+        console.print(f"[yellow]{err}[/]\n[dim]Going mute for this show.[/]")
+        player = NullPlayer()
+
+    try:
+        Broadcaster(console, tts_engine, player).run(
+            url, max_tokens=max_tokens, use_cache=not no_cache
+        )
+    except (IngestError, ScriptError, TTSError) as err:
+        console.print(f"[red]📻 Station's off the air — {err}[/]")
+        raise typer.Exit(1)
