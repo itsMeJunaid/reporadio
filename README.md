@@ -4,17 +4,23 @@
 > explains (or roasts) the codebase out loud. Interrupt it with your voice,
 > ask anything.
 
-**v0.1.0 — the pipeline is live.** `reporadio tour <url>` ingests a repo,
-writes a radio show about it with Groq, and speaks it — streaming, segment by
-segment. Voice Q&A (interrupt the host) lands in v0.2.
+**v0.2.0 — the caller line is open.** `reporadio tour <url>` speaks a guided
+tour of any repo — and now you can **interrupt the host with your voice**:
+Silero VAD cuts the TTS the instant you talk, Groq Whisper transcribes you,
+and the host answers from a ChromaDB index of the actual code, then resumes
+the show right where it stopped.
 
 ## Quickstart (dev)
 
 ```bash
 uv sync
 cp .env.example .env   # paste your free Groq key from console.groq.com
-uv run reporadio tour https://github.com/fastapi/typer
+uv run reporadio tour https://github.com/fastapi/typer   # talk to interrupt!
+uv run reporadio ask  https://github.com/fastapi/typer "where is the CLI defined?"
 ```
+
+> 🎧 **Use headphones for the live caller mode** — with open speakers the host
+> hears himself through the mic and takes his own calls.
 
 Useful flags: `--mute` (transcript only), `--engine kokoro|edge`, `--voice`,
 `--max-tokens` (digest budget, default 8k — sized for Groq's free tier),

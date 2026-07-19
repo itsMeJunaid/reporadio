@@ -1,23 +1,31 @@
-"""Orchestrates the show: ingest → streamed script → TTS queue → live display."""
+"""Orchestrates the show: ingest → index (background) → streamed script → TTS →
+live display, with mic barge-in: interrupt → question → grounded answer → resume."""
 
 from __future__ import annotations
 
+import queue
 import time
 
-from rich.panel import Panel
 from rich.live import Live
+from rich.panel import Panel
 from rich.text import Text
 
 from reporadio.ingest import fetcher
+from reporadio.session import caller as caller_flow
+from reporadio.session.memory import SessionMemory
 from reporadio.show import script as show_script
 
 
 class Broadcaster:
-    def __init__(self, console, engine, player, station: str = "88.1 Tour FM"):
+    def __init__(
+        self, console, engine, player, station: str = "88.1 Tour FM",
+        mic_enabled: bool = True,
+    ):
         self.console = console
         self.engine = engine
         self.player = player
         self.station = station
+        self.mic_enabled = mic_enabled
 
     def _header(self, repo: str, seg_no: int | str, title: str, state: str) -> Panel:
         txt = Text()
@@ -30,6 +38,62 @@ class Broadcaster:
             txt.append(f" — {title}", style="bold")
         txt.append(f"\n{state}", style="dim italic")
         return Panel(txt, border_style="yellow", title="📻 REPORADIO")
+
+    def _start_mic(self, calls: queue.Queue):
+        if not self.mic_enabled:
+            return None
+        try:
+            from reporadio.voice.vad import Mic
+
+            def on_speech() -> None:
+                calls.put(self.player.interrupt())
+
+            mic = Mic(on_speech)
+            mic.start()
+            self.console.print(
+                "[dim]📞 Lines are open — just start talking to interrupt the host. "
+                "(Use headphones, or the host will hear himself!)[/]"
+            )
+            return mic
+        except Exception as err:
+            self.console.print(f"[dim]📵 No caller line (mic unavailable: {err})[/]")
+            return None
+
+    def _handle_call(self, mic, calls, index, digest, memory, live, seg_ctx) -> None:
+        try:
+            leftovers = calls.get_nowait()
+        except queue.Empty:
+            return
+
+        repo, seg_no, title = seg_ctx
+        live.update(self._header(repo, seg_no, title, "📞 LIVE CALLER — listening…"))
+        utt = mic.utterance(timeout=12)
+        mic.pause()
+        try:
+            if utt is None:
+                return
+            live.update(self._header(repo, seg_no, title, "📞 caller on line — transcribing…"))
+            from reporadio.voice.stt import transcribe
+
+            question = transcribe(utt)
+            if not question:
+                return
+            live.console.print(f"\n[bold green]📞 You:[/] [italic]{question}[/]")
+            live.update(self._header(repo, seg_no, title, "🎙 checking the code…"))
+            qa = caller_flow.answer_question(question, index, digest, memory)
+            live.console.print(f"[bold yellow]🎙 Host:[/] [dim]{qa.answer}[/]")
+            if qa.files:
+                live.console.print(f"[dim]   (from: {', '.join(qa.files[:4])})[/]")
+            self.player.enqueue(self.engine.synth(qa.answer))
+        except Exception as err:
+            live.console.print(f"[red]📞 Lost the caller — {err}[/]")
+        finally:
+            for audio in leftovers:  # resume the show exactly where it stopped
+                self.player.enqueue(audio)
+            self.player.wait()  # let the answer + resumed tail play before listening again
+            if mic:
+                mic.resume()
+        live.update(self._header(repo, seg_no, title, "🎙 back to the tour…"))
 
     def run(
         self,
@@ -50,44 +114,66 @@ class Broadcaster:
             note += f" ({len(digest.dropped)} large files trimmed)"
         self.console.print(note + "[/]")
 
+        from reporadio.index.store import build_index_async
+
+        index = build_index_async(digest)  # embeds in the background while we talk
+        memory = SessionMemory()
+        calls: queue.Queue = queue.Queue()
+        mic = self._start_mic(calls)
+
         first_audio: float | None = None
         count = 0
+        title = ""
         header = self._header(digest.name, "…", "", "✍ the host is writing the show…")
         try:
             with Live(header, console=self.console, refresh_per_second=8) as live:
                 for seg in show_script.generate_segments(digest, prompt_name=prompt_name):
                     count += 1
+                    title = seg.title
+                    if mic:
+                        self._handle_call(
+                            mic, calls, index, digest, memory, live,
+                            (digest.name, count, title),
+                        )
                     live.update(self._header(
-                        digest.name, count, seg.title, "✍ synthesizing this segment…"
+                        digest.name, count, title, "✍ synthesizing this segment…"
                     ))
-                    live.console.print(
-                        f"\n[bold yellow]— Segment {count}: {seg.title} —[/]"
-                    )
+                    live.console.print(f"\n[bold yellow]— Segment {count}: {title} —[/]")
                     live.console.print(f"[dim]{seg.spoken_text}[/]")
                     audio = self.engine.synth(seg.spoken_text)
                     if first_audio is None:
                         first_audio = time.monotonic() - t0
                     self.player.enqueue(audio)
                     live.update(self._header(
-                        digest.name, count, seg.title, "🎙 on air — next segment incoming…"
+                        digest.name, count, title, "🎙 on air — next segment incoming…"
                     ))
-                live.update(self._header(
-                    digest.name, count, "", "🎶 playing out the rest of the show…"
-                ))
-                self.player.wait()
+                while True:  # play out the tail, still answering calls
+                    if mic:
+                        self._handle_call(
+                            mic, calls, index, digest, memory, live,
+                            (digest.name, count, title),
+                        )
+                    if self.player.idle() and calls.empty():
+                        break
+                    live.update(self._header(
+                        digest.name, count, title, "🎶 playing out the rest of the show…"
+                    ))
+                    time.sleep(0.15)
         except KeyboardInterrupt:
             self.player.stop()
             self.console.print("\n[red]📻 Off air — caller hung up.[/]")
             return
         finally:
+            if mic:
+                mic.stop()
             self.player.close()
 
         total = time.monotonic() - t0
         stats = Text()
         stats.append("That's the show. ", style="bold")
         stats.append(
-            f"{count} segments · first audio in {first_audio:.1f}s · "
-            f"{total:.0f}s total — stay tuned.",
+            f"{count} segments · {len(memory)} caller questions · "
+            f"first audio in {first_audio:.1f}s · {total:.0f}s total — stay tuned.",
             style="dim",
         )
         self.console.print(Panel.fit(stats, border_style="green", title="📻 SIGN-OFF"))
