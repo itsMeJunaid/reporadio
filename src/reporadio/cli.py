@@ -188,6 +188,23 @@ def versions(
 
 
 @app.command()
+def serve(
+    port: int = typer.Option(8181, "--port", "-p", help="Studio port"),
+    host: str = typer.Option("127.0.0.1", "--host", help="Bind address"),
+    no_browser: bool = typer.Option(False, "--no-browser", help="Don't open a tab"),
+) -> None:
+    """Open the studio — the tuner dashboard in your browser."""
+    _require_key_or_exit()
+    from reporadio.web.app import serve as run_studio
+
+    console.print(
+        f"[bold yellow]📻 Studio on air:[/] http://{host}:{port}  "
+        "[dim](Ctrl+C to sign off)[/]"
+    )
+    run_studio(host=host, port=port, open_browser=not no_browser)
+
+
+@app.command()
 def stations() -> None:
     """What's on the dial."""
     from rich.table import Table

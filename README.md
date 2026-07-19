@@ -4,11 +4,13 @@
 > explains (or roasts) the codebase out loud. Interrupt it with your voice,
 > ask anything.
 
-**v0.4.0 — the archive is open.** Four stations (tour, chai-chat, roast, and
-**Desi FM** — *"Haan G! Repo analyze kar lia"*), voice interruptions answered
-from the actual code — and now **versioning**: every analysis is archived,
-`reporadio changelog` broadcasts what changed between versions, and
-`--at <commit>` time-travels the tour to an older snapshot.
+**v1.0.0 — the studio is open.** `reporadio serve` puts the whole station in
+your browser: paste a repo, watch the needle sweep INGEST → INDEX → CONTEXT →
+READY, pick a station (including **Desi FM** — *"Haan G! Repo analyze kar
+lia"*), hear the show, and **hold the mic button to call in** — the host
+answers from the actual code and the show resumes. All four stations, four
+languages, versioned archive, changelog episodes — CLI and web share the same
+core.
 
 ## Quickstart (dev)
 
@@ -22,6 +24,7 @@ uv run reporadio roast https://github.com/fastapi/typer  # 🔥
 uv run reporadio ask   https://github.com/fastapi/typer "where is the CLI defined?"
 uv run reporadio versions  https://github.com/fastapi/typer   # the archive
 uv run reporadio changelog https://github.com/fastapi/typer   # what's new, on air
+uv run reporadio serve                                        # 🎛 the browser studio
 ```
 
 Any mode in any language: `--lang en|ur|roman|mix` (e.g. the standard tour in

@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>REPORADIO · Studio</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Unica+One&family=Archivo:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body data-mode="standard">
+
+<nav>
+  <a class="brand" href="#">REPO<b>RADIO</b></a>
+  <span class="onair" id="onair">● OFF AIR</span>
+  <span class="repochip" id="repochip" hidden></span>
+  <span class="navright" id="navstate">studio ready</span>
+</nav>
+
+<!-- TUNE IN -->
+<section class="hero" id="hero">
+  <h1>THE <b>STUDIO</b></h1>
+  <p class="tag">Paste a GitHub repo. The host analyzes it, then talks to you about it — out loud. Hold the mic to interrupt.</p>
+
+  <div class="tunein">
+    <input id="url" type="url" placeholder="https://github.com/owner/repo" spellcheck="false">
+    <button id="tunebtn">TUNE&nbsp;IN</button>
+  </div>
+
+  <div class="tuner">
+    <div class="label">analysis band</div>
+    <div class="band">
+      <div class="ticks" aria-hidden="true"></div>
+      <div class="needle" id="needle"></div>
+    </div>
+    <div class="stages">
+      <span data-stage="ingest">INGEST</span>
+      <span data-stage="index">INDEX</span>
+      <span data-stage="context">CONTEXT</span>
+      <span data-stage="ready">READY</span>
+    </div>
+    <div class="statusline" id="statusline">waiting for a frequency…</div>
+  </div>
+</section>
+
+<!-- MODE TUNER -->
+<section class="modes">
+  <div class="label">FM TUNER · pick your station</div>
+  <div class="stationrow" id="stations"></div>
+  <div class="langrow">
+    <span class="label">language</span>
+    <div id="langs">
+      <button class="lang" data-lang="en">English</button>
+      <button class="lang" data-lang="roman">Roman Urdu</button>
+      <button class="lang" data-lang="mix">Mix</button>
+      <button class="lang" data-lang="ur">اردو</button>
+    </div>
+  </div>
+</section>
+
+<!-- BROADCAST CONSOLE -->
+<section class="console" id="console" hidden>
+  <div class="colL">
+    <div class="panel">
+      <div class="label">now playing</div>
+      <div class="segtitle" id="segtitle">—</div>
+      <canvas id="wave" width="560" height="90"></canvas>
+      <div class="controls">
+        <button id="pausebtn" title="Pause">⏸</button>
+        <button id="resumebtn" title="Resume">▶</button>
+        <button id="skipbtn" title="Skip segment">⏭</button>
+        <button id="micbtn" title="Hold to talk">🎙 HOLD&nbsp;TO&nbsp;CALL</button>
+      </div>
+      <div class="michint">hold the mic button, ask your question, release — the host answers from the code</div>
+    </div>
+    <div class="panel deck">
+      <div class="label">📼 version deck</div>
+      <div id="versions" class="versions">no versions yet</div>
+    </div>
+  </div>
+  <div class="colR panel">
+    <div class="label">live transcript</div>
+    <div id="transcript" class="transcript"></div>
+  </div>
+</section>
+
+<footer>
+  <span id="f_latency">latency —</span>
+  <span id="f_voice">voice —</span>
+  <span>LLM groq · llama-3.3-70b</span>
+  <span>STT whisper-v3-turbo</span>
+  <span id="f_mic">mic idle</span>
+</footer>
+
+<script src="app.js"></script>
+</body>
+</html>
