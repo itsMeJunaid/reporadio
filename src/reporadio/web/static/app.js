@@ -2,8 +2,16 @@
 "use strict";
 
 const $ = (id) => document.getElementById(id);
-const STAGE_POS = { ingest: "12%", index: "38%", context: "63%", ready: "88%" };
+const STAGE_POS = { ingest: 12, index: 38, context: 63, ready: 88 };
 const STAGE_ORDER = ["ingest", "index", "context", "ready"];
+const FUN = {
+  ingest: ["📡 scanning frequencies…", "☎️ dialing the repo…", "🛰 acquiring signal…",
+           "📻 clearing the static…", "🔌 warming up the tubes…"],
+  index: ["🗂 filing every function…", "🧲 magnetizing the archive…", "📇 alphabetizing the chaos…",
+          "🔍 reading between the lines…"],
+  context: ["✍ the agent is reading the code…", "🎙 adjusting the microphone…",
+            "☕ agent pouring a quick chai…", "🧠 connecting the dots…", "🎚 balancing the levels…"],
+};
 
 let ws = null;
 let currentMode = "standard";
@@ -99,13 +107,30 @@ function accentRGB() {
   const w = orb.width, h = orb.height, cx = w / 2, cy = h / 2 - 10;
   octx.clearRect(0, 0, w, h);
 
-  const target = Math.min(1, player.level() * 4 + micAmp * 3);
-  amp += (target - amp) * 0.12;
+  const tuning = document.body.dataset.state === "tuning";
+  const target = tuning
+    ? 0.14 + Math.random() * 0.3                       // radio static: chaotic energy
+    : Math.min(1, player.level() * 4 + micAmp * 3);
+  amp += (target - amp) * (tuning ? 0.3 : 0.12);
   rotY += 0.0035 + amp * 0.012;
 
   const listening = document.body.dataset.state === "listening" || micAmp > 0.06;
   const [ar, ag, ab] = listening ? [168, 224, 95] : accentRGB();
   const base = 118 + amp * 46 + Math.sin(ts / 1600) * 4;
+
+  if (tuning) {                                        // oscilloscope hunting for signal
+    octx.strokeStyle = `rgba(${ar},${ag},${ab},.55)`;
+    octx.lineWidth = 1.5;
+    octx.beginPath();
+    for (let x = 0; x < w; x += 4) {
+      const noise = (Math.random() - 0.5) * 26 * (0.4 + amp);
+      const carrier = Math.sin(x / 26 + ts / 130) * 14 * amp;
+      const glitch = Math.random() < 0.01 ? (Math.random() - 0.5) * 70 : 0;
+      const y = cy + noise + carrier + glitch;
+      x ? octx.lineTo(x, y) : octx.moveTo(x, y);
+    }
+    octx.stroke();
+  }
 
   const cosY = Math.cos(rotY), sinY = Math.sin(rotY);
   const cosX = Math.cos(rotX), sinX = Math.sin(rotX);
@@ -155,10 +180,46 @@ async function loadStations() {
 }
 function markLang() {}
 
+/* =============================================== needle seek physics */
+let needlePos = 2, needleVel = 0, needleTarget = 2;
+(function needleLoop() {
+  requestAnimationFrame(needleLoop);
+  const tuning = document.body.dataset.state === "tuning";
+  // spring-damper toward the target, with radio-seek jitter while tuning
+  needleVel += (needleTarget - needlePos) * 0.016;
+  needleVel *= 0.86;                                  // damping → overshoot + settle
+  needlePos += needleVel;
+  const wobble = tuning ? (Math.random() - 0.5) * 3.2 + Math.sin(performance.now() / 90) * 1.6 : 0;
+  $("needle").style.left = Math.max(1, Math.min(97, needlePos + wobble)) + "%";
+})();
+
+/* =============================================== fun tuning ticker */
+let currentStage = null, lastDetail = "", ticker = null, tick = 0;
+function startTicker() {
+  stopTicker();
+  tick = 0;
+  ticker = setInterval(() => {
+    tick++;
+    // signal bars flicker like a weak signal locking on
+    const bars = document.querySelectorAll("#sig i");
+    const strength = 1 + Math.floor(Math.random() * bars.length);
+    bars.forEach((b, i) => b.classList.toggle("on", i < strength));
+    // alternate the real detail with fun radio chatter
+    const pool = FUN[currentStage];
+    if (pool && tick % 2 === 0) $("statusline").innerHTML = pool[(tick / 2) % pool.length | 0];
+    else if (lastDetail) $("statusline").innerHTML = lastDetail;
+  }, 850);
+}
+function stopTicker(locked) {
+  if (ticker) { clearInterval(ticker); ticker = null; }
+  document.querySelectorAll("#sig i").forEach((b) => b.classList.toggle("on", !!locked));
+}
+
 /* =============================================== stage + status */
 function setStage(stage) {
   if (!(stage in STAGE_POS)) return;
-  $("needle").style.left = STAGE_POS[stage];
+  currentStage = stage;
+  needleTarget = STAGE_POS[stage];
   const idx = STAGE_ORDER.indexOf(stage);
   document.querySelectorAll(".stages span").forEach((s) => {
     const i = STAGE_ORDER.indexOf(s.dataset.stage);
@@ -166,7 +227,7 @@ function setStage(stage) {
     s.classList.toggle("active", i === idx);
   });
 }
-function status(html) { $("statusline").innerHTML = html; }
+function status(html) { lastDetail = html; $("statusline").innerHTML = html; }
 function setState(st, label) {
   document.body.dataset.state = st;
   $("navstate").textContent = label || st;
@@ -252,6 +313,9 @@ function tuneIn() {
   player.ensure();
   player.flush();
   $("tunebtn").disabled = true;
+  $("tunebtn").classList.add("tuning");
+  $("tunebtn").querySelector("span").textContent = "TUNING…";
+  startTicker();
   document.body.classList.add("tuned");
   $("studio").hidden = false;
   $("transcript").innerHTML = "";
@@ -263,7 +327,7 @@ function tuneIn() {
   ws.onopen = () => ws.send(JSON.stringify(
     { type: "tune_in", url, mode: currentMode, lang: currentLang }));
   ws.onmessage = (e) => handle(JSON.parse(e.data));
-  ws.onclose = () => { $("tunebtn").disabled = false; mic.stop(); setState("idle", "off air"); };
+  ws.onclose = () => { _tuneDone(false); mic.stop(); setState("idle", "off air"); };
   ws.onerror = () => status("⚠ lost the studio connection");
   setStage("ingest");
   status("📡 tuning in…");
@@ -282,6 +346,7 @@ function handle(ev) {
       status(ev.detail);
       break;
     case "ready": {
+      _tuneDone(true);
       setStage("ready");
       const chip = $("repochip");
       chip.hidden = false;
@@ -308,10 +373,20 @@ function handle(ev) {
       player.play(ev.data, ev.samplerate);
       break;
     case "error":
+      _tuneDone(false);
       addLine("err", ev.message);
       status(`⚠ ${ev.message}`);
       break;
   }
+}
+
+function _tuneDone(locked) {
+  stopTicker(locked);
+  const btn = $("tunebtn");
+  btn.disabled = false;
+  btn.classList.remove("tuning");
+  btn.querySelector("span").innerHTML = "TUNE&nbsp;IN";
+  if (!locked && document.body.dataset.state === "tuning") setState("idle", "off air");
 }
 
 /* =============================================== controls */

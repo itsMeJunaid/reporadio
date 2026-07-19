@@ -63,11 +63,27 @@ body.tuned .hero h1,body.tuned .hero .tag{display:none}
 .lang.active{border-color:var(--accent);color:var(--accent);background:var(--accent-soft)}
 
 .band-wrap{margin:26px auto 0;max-width:660px;background:var(--panel);backdrop-filter:blur(8px);border:1px solid var(--line);border-radius:14px;padding:18px 22px;box-shadow:0 24px 70px rgba(0,0,0,.45)}
+.labelrow{display:flex;justify-content:space-between;align-items:flex-end}
+.sig{display:flex;gap:3px;align-items:flex-end;height:15px;margin-bottom:12px}
+.sig i{width:4px;background:var(--muted);opacity:.3;border-radius:2px;transition:all .12s}
+.sig i:nth-child(1){height:4px}.sig i:nth-child(2){height:7px}.sig i:nth-child(3){height:9px}.sig i:nth-child(4){height:12px}.sig i:nth-child(5){height:15px}
+.sig i.on{background:var(--accent);opacity:1;box-shadow:0 0 8px var(--accent-glow)}
 .band{position:relative;height:46px;background:linear-gradient(180deg,#0A0804,#151007);border:1px solid var(--line);border-radius:8px;overflow:hidden}
 .ticks{position:absolute;inset:0;display:flex;justify-content:space-between;padding:0 8px}
 .ticks i{width:1px;background:rgba(242,234,217,.13);height:100%}
 .ticks i:nth-child(2n){height:52%;align-self:flex-end}
-.needle{position:absolute;top:0;bottom:0;width:3px;background:var(--accent);box-shadow:0 0 14px var(--accent);left:2%;transition:left .8s cubic-bezier(.6,0,.2,1)}
+.needle{position:absolute;top:0;bottom:0;width:3px;background:var(--accent);box-shadow:0 0 14px var(--accent);left:2%}
+.static{position:absolute;inset:0;opacity:0;pointer-events:none;transition:opacity .3s;background-image:
+  repeating-radial-gradient(circle at 17% 32%,rgba(255,255,255,.07) 0 1px,transparent 1px 3px),
+  repeating-radial-gradient(circle at 73% 68%,rgba(255,255,255,.05) 0 1px,transparent 1px 4px),
+  repeating-linear-gradient(0deg,rgba(242,234,217,.04) 0 1px,transparent 1px 3px)}
+body[data-state="tuning"] .static{opacity:1;animation:staticjmp .12s steps(2) infinite}
+@keyframes staticjmp{0%{transform:translate(0,0)}33%{transform:translate(-7px,3px)}66%{transform:translate(5px,-2px)}100%{transform:translate(-2px,4px)}}
+body[data-state="tuning"] .band::after{content:"";position:absolute;top:0;bottom:0;width:70px;background:linear-gradient(90deg,transparent,var(--accent-soft) 40%,rgba(255,255,255,.06) 50%,var(--accent-soft) 60%,transparent);animation:sweep 1.5s ease-in-out infinite}
+@keyframes sweep{0%{left:-12%}55%{left:92%}100%{left:-12%}}
+body[data-state="tuning"] .statusline::after{content:"▌";color:var(--accent);animation:blink 1s steps(1) infinite;margin-left:2px}
+@media(prefers-reduced-motion:reduce){body[data-state="tuning"] .static,body[data-state="tuning"] .band::after{animation:none}}
+.tunein button.tuning{animation:blink 1.4s ease-in-out infinite;letter-spacing:.14em}
 .stages{display:flex;justify-content:space-between;margin-top:9px;font-family:var(--mono);font-size:9.5px;letter-spacing:.22em;color:var(--muted)}
 .stages span{transition:color .3s}
 .stages span.done{color:var(--accent)}
