@@ -2,8 +2,28 @@
 
 from __future__ import annotations
 
+import re
+
 from reporadio.session.memory import QA, SessionMemory
 from reporadio.show.script import MODEL, load_prompt
+
+# Acknowledgments/goodbyes: no retrieval (junk hits + prompt-file injection risk),
+# no repo material — just the persona and the conversation.
+_SMALL_TALK_WORDS = {
+    "okay", "ok", "kay", "nice", "cool", "great", "awesome", "perfect", "good",
+    "fine", "thanks", "thank", "thankyou", "bye", "goodbye", "see", "ya", "you",
+    "later", "hi", "hey", "hello", "yo", "sup", "got", "it", "hmm", "mhm",
+    "yeah", "yep", "yes", "no", "nope", "sure", "alright", "right", "boss",
+    "man", "bro", "dude", "please", "day", "have", "a", "so", "and", "then",
+    "well", "thats", "that's", "was", "is", "wow", "haha", "lol", "understood",
+}
+
+
+def is_small_talk(text: str) -> bool:
+    words = re.findall(r"[a-z']+", text.lower())
+    return bool(words) and len(words) <= 6 and all(
+        w in _SMALL_TALK_WORDS for w in words
+    )
 
 STILL_INDEXING = (
     "Hold that thought, caller — I'm still filing this repo into the archive. "
@@ -35,14 +55,22 @@ def answer_question(
 ) -> QA:
     """Grounded answer from the index; honest fallbacks when we can't answer.
     extra_context: e.g. a FILE IN FOCUS excerpt or repo overview material."""
-    if not index.ready.wait(timeout=wait_index_s):
-        return QA(question, STILL_INDEXING)
-
-    hits = index.query(question, k=k)
-    if not hits and not extra_context:
-        qa = QA(question, _not_found(question, digest))
-        memory.add(qa)
-        return qa
+    small = is_small_talk(question)
+    if small:
+        # persona-only turn: keep just the station mood, drop all repo material
+        hits = []
+        extra_context = next(
+            (ln for ln in extra_context.splitlines() if ln.startswith("STATION MOOD")),
+            "",
+        )
+    else:
+        if not index.ready.wait(timeout=wait_index_s):
+            return QA(question, STILL_INDEXING)
+        hits = index.query(question, k=k)
+        if not hits and not extra_context:
+            qa = QA(question, _not_found(question, digest))
+            memory.add(qa)
+            return qa
 
     if client is None:
         from groq import Groq

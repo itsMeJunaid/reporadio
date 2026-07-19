@@ -219,11 +219,34 @@ class WebSession:
         self._answering.set()
         threading.Thread(target=self._answer, args=(utterance,), daemon=True).start()
 
+    def _fetch_raw(self, path: str) -> str | None:
+        """Trimmed from the digest? Pull the single file from GitHub raw so a
+        clicked file can ALWAYS be explained. Cached per session."""
+        if not hasattr(self, "_raw_cache"):
+            self._raw_cache: dict[str, str | None] = {}
+        if path in self._raw_cache:
+            return self._raw_cache[path]
+        text = None
+        try:
+            from urllib.request import Request, urlopen
+
+            url = f"https://raw.githubusercontent.com/{self.digest.name}/{self.digest.commit}/{path}"
+            req = Request(url, headers={"User-Agent": "reporadio"})
+            with urlopen(req, timeout=10) as resp:
+                text = resp.read(FOCUS_EXCERPT * 4).decode("utf-8", "replace")
+        except Exception:
+            pass
+        self._raw_cache[path] = text
+        return text
+
     def _focus_context(self) -> str:
         if not self._focus or self.digest is None:
             return ""
-        text = self.digest.files.get(self._focus)
-        excerpt = f"\n{text[:FOCUS_EXCERPT]}" if text else " (contents trimmed from digest)"
+        text = self.digest.files.get(self._focus) or self._fetch_raw(self._focus)
+        excerpt = (
+            f"\n{text[:FOCUS_EXCERPT]}" if text
+            else " (couldn't load its contents — say so honestly)"
+        )
         return f"FILE IN FOCUS — the caller has {self._focus} selected:{excerpt}"
 
     def _overview_context(self) -> str:

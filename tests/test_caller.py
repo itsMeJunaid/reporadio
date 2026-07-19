@@ -10,11 +10,13 @@ from reporadio.session.memory import QA, SessionMemory
 class FakeIndex:
     def __init__(self, hits, ready=True):
         self._hits = hits
+        self.queries = 0
         self.ready = threading.Event()
         if ready:
             self.ready.set()
 
     def query(self, text, k=6):
+        self.queries += 1
         return self._hits
 
 
@@ -121,3 +123,29 @@ def test_empty_memory_means_no_history_turns():
     client = FakeChat()
     answer_question("q", FakeIndex(HITS), digest(), SessionMemory(), client=client)
     assert len(client.messages) == 2  # system + current question only
+
+
+def test_is_small_talk_detector():
+    from reporadio.session.caller import is_small_talk
+
+    for text in ("okay so got it", "Okay, nice. Bye.", "thanks man", "hmm",
+                 "cool cool", "alright have a good day"):
+        assert is_small_talk(text), text
+    for text in ("where is the CLI defined?", "what does pyproject.toml do?",
+                 "okay so how does the player work", "what's your name?"):
+        assert not is_small_talk(text), text
+
+
+def test_small_talk_skips_retrieval_and_repo_material():
+    index = FakeIndex(HITS)
+    client = FakeChat("Pleasure. Come back anytime.")
+    qa = answer_question(
+        "Okay, nice. Bye.", index, digest(), SessionMemory(), client=client,
+        prompt_name="agent",
+        extra_context="REPO OVERVIEW MATERIAL:\nbig repo stuff\n\nSTATION MOOD: Roast — brutally honest",
+    )
+    assert index.queries == 0                     # no junk hits, no injection surface
+    user = client.messages[-1]["content"]
+    assert "big repo stuff" not in user           # repo material dropped
+    assert "STATION MOOD: Roast" in user          # persona kept
+    assert qa.files == []                         # nothing to cite on a goodbye
